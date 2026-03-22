@@ -256,8 +256,12 @@ async function initiateConnection() {
   const fbUser = getCurrentUser();
   let token: string | undefined = localStorage.getItem('auth_token') ?? undefined;
   if (fbUser) {
-    const stored = await loadStoredToken(fbUser.uid);
-    if (stored) token = stored;
+    try {
+      const stored = await loadStoredToken(fbUser.uid);
+      if (stored) token = stored;
+    } catch {
+      // Firestore unavailable — proceed with cached or anonymous token
+    }
   }
 
   conn = DbConnection.builder()
@@ -362,6 +366,11 @@ async function initiateConnection() {
             if (myChar && myChar.currentWorldId > 0n) subscribeToWorld(myChar.currentWorldId);
           }
           // Route to correct screen based on character state
+          updateScreen(scene);
+        })
+        .onError((_ctx, err) => {
+          console.error('Subscription error:', err);
+          // Still try to route — some tables may be available
           updateScreen(scene);
         })
         .subscribe([
