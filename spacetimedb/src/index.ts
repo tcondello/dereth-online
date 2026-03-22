@@ -1789,7 +1789,8 @@ export const run_enemy_ai = spacetimedb.reducer(
             .map((h: any) => (!h.cauterized && h.regrowAt === 0n) ? '1' : '0')
             .join('');
           updates.mechState = `hydra:${mask}:${phase}`;
-          ctx.db.enemy.id.update(updates);
+          // Guard: endRun may have deleted this enemy if the last player died from venom
+          if (ctx.db.enemy.id.find(updates.id)) ctx.db.enemy.id.update(updates);
 
           // Hydra holds position rather than chasing (heads do the attacking)
           continue;
@@ -2091,7 +2092,8 @@ export const run_combat_tick = spacetimedb.reducer(
             ctx.db.portalCast.identity.delete(pos.identity);
           if (newHp === 0) handlePlayerDeath(ctx, pos.identity);
         }
-        ctx.db.enemy.id.update({ ...enemy, mechTimer: now });
+        // Guard: handlePlayerDeath → endRun may have deleted this enemy
+        if (ctx.db.enemy.id.find(enemy.id)) ctx.db.enemy.id.update({ ...enemy, mechTimer: now });
       }
 
       if (bd.mechanic === 'nova' && elapsed > 8_000_000n) {
@@ -2110,7 +2112,8 @@ export const run_combat_tick = spacetimedb.reducer(
             ctx.db.portalCast.identity.delete(pos.identity);
           if (newHp === 0) handlePlayerDeath(ctx, pos.identity);
         }
-        ctx.db.enemy.id.update({ ...enemy, mechTimer: now });
+        // Guard: handlePlayerDeath → endRun may have deleted this enemy
+        if (ctx.db.enemy.id.find(enemy.id)) ctx.db.enemy.id.update({ ...enemy, mechTimer: now });
       }
     }
 
@@ -2249,3 +2252,22 @@ export const olthoi_layer_tick = spacetimedb.reducer(
     });
   }
 );
+
+// ── Admin: restart crashed scheduled loops ────────────────────────────────────────
+// Call this if run_enemy_ai or run_combat_tick panicked and stopped scheduling.
+
+export const restart_loops = spacetimedb.reducer(ctx => {
+  const now = ctx.timestamp.microsSinceUnixEpoch;
+  if ([...ctx.db.enemyAiSchedule.iter()].length === 0) {
+    ctx.db.enemyAiSchedule.insert({ scheduledId: 0n, scheduledAt: ScheduleAt.time(now + AI_INTERVAL_US) });
+  }
+  if ([...ctx.db.combatSchedule.iter()].length === 0) {
+    ctx.db.combatSchedule.insert({ scheduledId: 0n, scheduledAt: ScheduleAt.time(now + CMB_INTERVAL_US) });
+  }
+  // Restart grind world ambient spawn if it stopped
+  for (const world of ctx.db.world.iter()) {
+    if (world.worldType !== 'grind') continue;
+    if ([...ctx.db.olthoiLayerSchedule.iter()].some(s => s.worldId === world.id)) continue;
+    ctx.db.olthoiLayerSchedule.insert({ scheduledId: 0n, scheduledAt: ScheduleAt.time(now + OLTHOI_TICK_US), worldId: world.id });
+  }
+});
