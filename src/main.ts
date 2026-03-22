@@ -300,7 +300,7 @@ async function initiateConnection() {
             // Render initial enemies in this world
             for (const e of conn!.db.enemy.iter()) {
               if (e.worldId !== worldId) continue;
-              scene.upsertEnemySprite(e.id.toString(), e.x, e.y, e.currentHp, e.maxHp, e.enemyType, e.isBoss, e.bossLevel);
+              scene.upsertEnemySprite(e.id.toString(), e.x, e.y, e.currentHp, e.maxHp, e.enemyType, e.isBoss, e.bossLevel, e.mechState);
             }
             // Set world type so portals render at the correct positions
             for (const w of conn!.db.world.iter()) {
@@ -321,6 +321,7 @@ async function initiateConnection() {
             `SELECT * FROM player_position WHERE world_id = ${worldId}`,
             `SELECT * FROM enemy WHERE world_id = ${worldId}`,
             `SELECT * FROM world_portal WHERE world_id = ${worldId}`,
+            `SELECT * FROM boss_head WHERE world_id = ${worldId}`,
           ]);
       }
 
@@ -381,8 +382,12 @@ async function initiateConnection() {
           'SELECT * FROM portal_cast',
           'SELECT * FROM world',
           'SELECT * FROM player_progress',
-          'SELECT * FROM loot_log',
         ]);
+
+      // Loot log — separate subscription so a failure here never blocks the core app
+      conn.subscriptionBuilder()
+        .onError((_ctx, err) => console.error('loot_log subscription error:', err))
+        .subscribe(['SELECT * FROM loot_log']);
 
       // ── Player table ────────────────────────────────────────────────────────
       conn.db.player.onInsert((_ctx: EventContext, row) => {
@@ -570,11 +575,11 @@ async function initiateConnection() {
       // ── Enemy table ─────────────────────────────────────────────────────────
       conn.db.enemy.onInsert((_ctx: EventContext, row) => {
         if (myWorldId === null || row.worldId !== myWorldId) return;
-        scene.upsertEnemySprite(row.id.toString(), row.x, row.y, row.currentHp, row.maxHp, row.enemyType, row.isBoss, row.bossLevel);
+        scene.upsertEnemySprite(row.id.toString(), row.x, row.y, row.currentHp, row.maxHp, row.enemyType, row.isBoss, row.bossLevel, row.mechState);
       });
       conn.db.enemy.onUpdate((_ctx: EventContext, _old, row) => {
         if (myWorldId === null || row.worldId !== myWorldId) return;
-        scene.upsertEnemySprite(row.id.toString(), row.x, row.y, row.currentHp, row.maxHp, row.enemyType, row.isBoss, row.bossLevel);
+        scene.upsertEnemySprite(row.id.toString(), row.x, row.y, row.currentHp, row.maxHp, row.enemyType, row.isBoss, row.bossLevel, row.mechState);
       });
       conn.db.enemy.onDelete((_ctx: EventContext, row) => {
         scene.removeEnemySprite(row.id.toString());
