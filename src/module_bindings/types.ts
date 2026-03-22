@@ -10,6 +10,18 @@ import {
   type Infer as __Infer,
 } from "spacetimedb";
 
+export const BossHead = __t.object("BossHead", {
+  id: __t.u64(),
+  bossEnemyId: __t.u64(),
+  worldId: __t.u64(),
+  headIdx: __t.u32(),
+  currentHp: __t.u32(),
+  maxHp: __t.u32(),
+  regrowAt: __t.u64(),
+  cauterized: __t.bool(),
+});
+export type BossHead = __Infer<typeof BossHead>;
+
 export const Character = __t.object("Character", {
   id: __t.u64(),
   identity: __t.identity(),

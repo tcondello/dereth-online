@@ -14,6 +14,7 @@ import {
 import {
   bakeAllEnemyTextures, getEnemyFrameIndex, ENEMY_FRAME_SIZE,
 } from '../enemies/enemy-textures';
+import { BossRenderer } from '../enemies/boss-renderer';
 
 const WORLD_WIDTH  = 2400;
 const WORLD_HEIGHT = 2400;
@@ -61,6 +62,7 @@ const ENEMY_TYPE_DATA: Record<string, { color: number; letter: string; size: num
   virindi:    { color: 0x6a3a8a, letter: 'V', size: 15, xp: 15 },
   banderling: { color: 0x6a7a4a, letter: 'B', size: 20, xp: 10 },
   larva:      { color: 0x4a8a3a, letter: 'l', size: 7,  xp: 1  },
+  unicorn:    { color: 0xdd60a8, letter: 'U', size: 16, xp: 20 },
 };
 
 const BOSS_NAMES = [
@@ -82,6 +84,8 @@ interface EnemyEntry    {
   // Pixel art sprite
   sprite?: Phaser.GameObjects.Image;
   spriteDir: string; spriteFrame: number; spriteFrameTimer: number;
+  // Dynamic canvas renderer for boss animations (hydra etc.)
+  bossRenderer?: BossRenderer;
 }
 interface PlayerEntry   {
   body: Phaser.GameObjects.Arc; inner: Phaser.GameObjects.Arc;
@@ -545,7 +549,7 @@ export class GameScene extends Phaser.Scene {
     this.players.delete(hex);
   }
 
-  upsertEnemySprite(idStr: string, x: number, y: number, currentHp: number, maxHp: number, enemyType: string, isBoss = false, bossLevel = 0) {
+  upsertEnemySprite(idStr: string, x: number, y: number, currentHp: number, maxHp: number, enemyType: string, isBoss = false, bossLevel = 0, mechState = '') {
     let entry = this.enemies.get(idStr);
     const baseData = ENEMY_TYPE_DATA[enemyType] ?? { color: 0xc62828, letter: '?', size: 14 };
     // Bosses are 2× larger
@@ -576,16 +580,28 @@ export class GameScene extends Phaser.Scene {
       const hpBar = this.add.rectangle(x, y - data.size - 6, data.size * 2 + 4, isBoss ? 6 : 3, isBoss ? 0xff6600 : 0xcc0000)
         .setOrigin(0.5).setDepth(13);
 
-      // Pixel art sprite
-      const spriteKey = `enemy_${enemyType}`;
-      const spriteSize = isBoss ? ENEMY_FRAME_SIZE * 2 : ENEMY_FRAME_SIZE;
-      const sprite = this.textures.exists(spriteKey)
-        ? this.add.image(x, y, spriteKey, 0).setDisplaySize(spriteSize, spriteSize).setDepth(10)
-        : undefined;
+      // Pixel art sprite — hydra boss uses a dynamic canvas renderer
+      let sprite: Phaser.GameObjects.Image | undefined;
+      let bossRenderer: BossRenderer | undefined;
+      if (isBoss && enemyType === 'hydra') {
+        const bossKey = `boss_canvas_${idStr}`;
+        bossRenderer = new BossRenderer(this, bossKey);
+        if (mechState) bossRenderer.applyMechState(mechState);
+        sprite = this.add.image(x, y, bossKey).setDisplaySize(64, 64).setDepth(10);
+        // Hide fallback circles — boss uses the canvas sprite
+        body.setVisible(false);
+        label.setVisible(false);
+      } else {
+        const spriteKey = `enemy_${enemyType}`;
+        const spriteSize = isBoss ? ENEMY_FRAME_SIZE * 2 : ENEMY_FRAME_SIZE;
+        sprite = this.textures.exists(spriteKey)
+          ? this.add.image(x, y, spriteKey, 0).setDisplaySize(spriteSize, spriteSize).setDepth(10)
+          : undefined;
+      }
 
       entry = {
         body, label, hp: { bg: hpBg, bar: hpBar }, type: enemyType, isBoss, bossAura, bossNameTag,
-        sprite, spriteDir: 'down', spriteFrame: 0, spriteFrameTimer: 0,
+        sprite, bossRenderer, spriteDir: 'down', spriteFrame: 0, spriteFrameTimer: 0,
       };
       this.enemies.set(idStr, entry);
       this.enemyPrevHp.set(idStr, currentHp);
@@ -593,6 +609,12 @@ export class GameScene extends Phaser.Scene {
       // Track facing direction from movement delta
       const dx = x - entry.body.x, dy = y - entry.body.y;
       if (dx !== 0 || dy !== 0) entry.spriteDir = getFacing(dx, dy);
+
+      // Boss renderer: apply mechState changes and movement
+      if (entry.bossRenderer) {
+        if (mechState) entry.bossRenderer.applyMechState(mechState);
+        entry.bossRenderer.setMoving(dx !== 0 || dy !== 0);
+      }
 
       entry.body.setPosition(x, y);
       entry.label.setPosition(x, y);
@@ -607,7 +629,8 @@ export class GameScene extends Phaser.Scene {
       const prevHp = this.enemyPrevHp.get(idStr);
       if (prevHp !== undefined && currentHp < prevHp) {
         this.showHitEffect(x, y - data.size, prevHp - currentHp);
-        this.flashEnemy(entry, data.color);
+        if (entry.bossRenderer) entry.bossRenderer.playHurt();
+        else this.flashEnemy(entry, data.color);
       }
       this.enemyPrevHp.set(idStr, currentHp);
     }
@@ -628,6 +651,7 @@ export class GameScene extends Phaser.Scene {
     entry.sprite?.destroy();
     entry.bossAura?.destroy();
     entry.bossNameTag?.destroy();
+    entry.bossRenderer?.destroy();
     this.enemies.delete(idStr);
     this.enemyPrevHp.delete(idStr);
   }
@@ -766,6 +790,11 @@ export class GameScene extends Phaser.Scene {
 
   private tickEnemySprites(delta: number) {
     for (const [, entry] of this.enemies) {
+      // Boss with dynamic canvas renderer — advance its animation, skip atlas frame cycling
+      if (entry.bossRenderer) {
+        entry.bossRenderer.update(delta);
+        continue;
+      }
       if (!entry.sprite) continue;
       // Flyers animate at 2× speed (matches creature-lab: every 6 ticks vs 12)
       const interval = (entry.type === 'shadow' || entry.type === 'virindi') ? 100 : 200;

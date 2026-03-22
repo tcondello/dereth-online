@@ -95,6 +95,8 @@ const ENEMY_STATS: Record<string, EnemyStat> = {
   tusker:     { hp: 80,  damage: 10, speed: 7,  xp: 18, dropChance: 0.28 },
   virindi:    { hp: 45,  damage: 6,  speed: 12, xp: 15, dropChance: 0.30 },
   banderling: { hp: 65,  damage: 8,  speed: 8,  xp: 10, dropChance: 0.18 },
+  unicorn:    { hp: 55,  damage: 8,  speed: 11, xp: 20, dropChance: 0.25 },
+  hydra:      { hp: 120, damage: 10, speed: 5,  xp: 30, dropChance: 0    },
   // OlthoiLayer ambient spawn — hatchlings, super weak, barely any drops
   larva:      { hp: 5,   damage: 1,  speed: 12, xp: 1,  dropChance: 0.01 },
 };
@@ -104,7 +106,7 @@ const ENEMY_STATS: Record<string, EnemyStat> = {
 const WAVE_DEFS: Array<{ name: string; types: string[]; count: number }> = [
   { name: 'Drudge Scouts',     types: ['drudge'],                                           count: 10 },
   { name: 'Shadow Ambush',     types: ['shadow'],                                           count: 8  },
-  { name: 'Drudge Warband',    types: ['drudge', 'banderling'],                             count: 14 },
+  { name: 'Unicorn Glade',     types: ['unicorn'],                                          count: 8  },
   { name: 'Olthoi Brood',      types: ['olthoi'],                                           count: 6  },
   { name: 'Shadow Legion',     types: ['shadow', 'virindi'],                                count: 12 },
   { name: 'Tusker Stampede',   types: ['tusker'],                                           count: 6  },
@@ -216,7 +218,7 @@ const BOSS_DEFS: BossDef[] = [
   { name: 'Bloody Bones',       baseType: 'drudge',     hpMult: 3,  spMult: 1.0, xpMult: 5, dropTier: 1, mechanic: 'enrage',  damageBonus: 5  },
   { name: 'The Whisperer',      baseType: 'shadow',     hpMult: 3,  spMult: 0.7, xpMult: 5, dropTier: 1, mechanic: 'blink',   damageBonus: 7  },
   { name: 'Grunter the Brute',  baseType: 'banderling', hpMult: 4,  spMult: 0.8, xpMult: 5, dropTier: 2, mechanic: 'warcry',  damageBonus: 8  },
-  { name: 'Brood Mother',       baseType: 'olthoi',     hpMult: 5,  spMult: 0.6, xpMult: 5, dropTier: 2, mechanic: 'spawn',   damageBonus: 7  },
+  { name: 'Hydra',              baseType: 'hydra',      hpMult: 5,  spMult: 0.4, xpMult: 8, dropTier: 2, mechanic: 'hydra',   damageBonus: 10 },
   { name: 'Martine the Mad',    baseType: 'virindi',    hpMult: 6,  spMult: 1.0, xpMult: 5, dropTier: 3, mechanic: 'phase',   damageBonus: 10 },
   { name: 'Torgluuk',           baseType: 'tusker',     hpMult: 7,  spMult: 0.5, xpMult: 5, dropTier: 3, mechanic: 'pound',   damageBonus: 15 },
   { name: 'The Hollow One',     baseType: 'virindi',    hpMult: 7,  spMult: 1.0, xpMult: 5, dropTier: 4, mechanic: 'mirror',  damageBonus: 12 },
@@ -230,7 +232,7 @@ const DUNGEON_FLOOR_DEFS: FloorDef[] = [
   { name: 'Drudge Warrens',        types: ['drudge'],                                              cap: 12, spawnIntervalUs: 3_000_000n, diffMult: 1.0 },
   { name: 'Shadow Den',            types: ['shadow'],                                              cap: 10, spawnIntervalUs: 3_500_000n, diffMult: 1.2 },
   { name: 'Banderling Lair',       types: ['drudge', 'banderling'],                                cap: 16, spawnIntervalUs: 2_500_000n, diffMult: 1.4 },
-  { name: 'Olthoi Nest',           types: ['olthoi'],                                              cap: 8,  spawnIntervalUs: 4_000_000n, diffMult: 1.6 },
+  { name: 'Hydra Lair',            types: ['olthoi', 'shadow'],                                    cap: 8,  spawnIntervalUs: 3_500_000n, diffMult: 1.6 },
   { name: 'Virindi Sanctum',       types: ['shadow', 'virindi'],                                   cap: 14, spawnIntervalUs: 3_000_000n, diffMult: 1.8 },
   { name: 'Tusker Canyon',         types: ['tusker'],                                              cap: 8,  spawnIntervalUs: 4_000_000n, diffMult: 2.0 },
   { name: 'Virindi Apparatus',     types: ['virindi', 'shadow'],                                   cap: 12, spawnIntervalUs: 3_000_000n, diffMult: 2.2 },
@@ -410,6 +412,25 @@ const spacetimedb = schema({
       id:         t.u64().primaryKey().autoInc(),
       worldId:    t.u64(),    // which world this portal lives in
       portalType: t.string(), // 'to_hub' | 'to_grind' | 'to_home'
+    }
+  ),
+
+  // Per-head HP tracking for the Hydra boss — 4 rows per boss spawn
+  bossHead: table(
+    { name: 'boss_head', public: true,
+      indexes: [
+        { accessor: 'boss_head_boss_id',  algorithm: 'btree', columns: ['bossEnemyId'] },
+        { accessor: 'boss_head_world_id', algorithm: 'btree', columns: ['worldId'] },
+      ]},
+    {
+      id:          t.u64().primaryKey().autoInc(),
+      bossEnemyId: t.u64(),   // links to enemy.id
+      worldId:     t.u64(),   // for world-scoped subscription
+      headIdx:     t.u32(),   // 0–3 (or more in phase 2)
+      currentHp:   t.u32(),
+      maxHp:       t.u32(),
+      regrowAt:    t.u64(),   // 0 = not regrowing; >0 = µs timestamp when it revives
+      cauterized:  t.bool(),  // permanently dead — no regrow ever
     }
   ),
 
@@ -834,6 +855,15 @@ function spawnEnemy(ctx: any, enemyType: string, x: number, y: number, worldId: 
   });
 }
 
+const HYDRA_HEAD_COUNT  = 4;
+const HYDRA_HEAD_HP_PCT = 0.25; // each head = 25% of body HP
+const HYDRA_REGROW_US   = 8_000_000n;  // 8s regrow (phase 1)
+const HYDRA_REGROW_P2_US = 4_000_000n; // 4s regrow (phase 2)
+const HYDRA_VENOM_CD_US  = 2_500_000n; // venom spit cooldown
+const HYDRA_VENOM_P2_CD  = 1_200_000n; // faster in phase 2
+const HYDRA_VENOM_RANGE  = 180;
+const HYDRA_VENOM_DMG    = 12;
+
 // Spawn the floor boss into a dungeon world
 function spawnDungeonBoss(ctx: any, level: number, worldId: bigint, now: bigint) {
   const bossIdx  = level - 1;
@@ -841,18 +871,31 @@ function spawnDungeonBoss(ctx: any, level: number, worldId: bigint, now: bigint)
   const base     = ENEMY_STATS[bd.baseType] ?? ENEMY_STATS.drudge;
   const diffMult = DUNGEON_FLOOR_DEFS[bossIdx].diffMult;
   const hp       = Math.floor(base.hp * bd.hpMult * diffMult);
-  // Spawn boss near center so players encounter it during the run
   const bossX = DUNGEON_EXIT_PORTAL_X + (prand(now, 0) - 0.5) * 200;
   const bossY = DUNGEON_EXIT_PORTAL_Y + 200;
-  ctx.db.enemy.insert({
+
+  const initState = bd.mechanic === 'hydra' ? 'hydra:1111:0' : 'normal';
+  const bossRow = ctx.db.enemy.insert({
     id: 0n, worldId,
     enemyType: bd.baseType,
     x: bossX, y: bossY,
     currentHp: hp, maxHp: hp,
     damage: base.damage + bd.damageBonus,
     isBoss: true, bossLevel: bossIdx,
-    mechTimer: now, mechState: 'normal',
+    mechTimer: now, mechState: initState,
   });
+
+  // Hydra: spawn 4 independent head rows
+  if (bd.mechanic === 'hydra') {
+    const headHp = Math.max(1, Math.floor(hp * HYDRA_HEAD_HP_PCT));
+    for (let i = 0; i < HYDRA_HEAD_COUNT; i++) {
+      ctx.db.bossHead.insert({
+        id: 0n, bossEnemyId: bossRow.id, worldId,
+        headIdx: i, currentHp: headHp, maxHp: headHp,
+        regrowAt: 0n, cauterized: false,
+      });
+    }
+  }
 }
 
 // Find an active dungeon world at the given level, or create a fresh one
@@ -1707,6 +1750,51 @@ export const run_enemy_ai = spacetimedb.reducer(
           }
         }
 
+        if (mech === 'hydra') {
+          const heads = [...ctx.db.bossHead.boss_head_boss_id.filter(enemy.id)];
+          const aliveHeads = heads.filter((h: any) => !h.cauterized && h.regrowAt === 0n);
+          const phase = enemy.currentHp < enemy.maxHp / 2 ? 1 : 0;
+
+          // Process regrow timers
+          for (const head of heads) {
+            if (head.regrowAt > 0n && now >= head.regrowAt && !head.cauterized) {
+              ctx.db.bossHead.id.update({ ...head, currentHp: head.maxHp, regrowAt: 0n });
+            }
+          }
+
+          // Venom spit: damage nearby players, one hit per alive head
+          const venomCd = phase === 1 ? HYDRA_VENOM_P2_CD : HYDRA_VENOM_CD_US;
+          if (elapsed > venomCd && aliveHeads.length > 0 && found) {
+            for (const pos of ctx.db.playerPosition.iter()) {
+              if (pos.worldId !== enemy.worldId) continue;
+              if (dist(pos.x, pos.y, enemy.x, enemy.y) > HYDRA_VENOM_RANGE) continue;
+              const ph = ctx.db.playerHealth.identity.find(pos.identity);
+              if (!ph || ph.currentHp === 0) continue;
+              const char = (() => { const p = ctx.db.player.identity.find(pos.identity); return p && p.activeCharacterId > 0n ? ctx.db.character.id.find(p.activeCharacterId) : undefined; })();
+              const armor = char ? getArmorReduction(ctx, pos.identity) : 0;
+              const hits  = aliveHeads.length;
+              const dmg   = Math.ceil(HYDRA_VENOM_DMG * hits * (phase + 1) * (1 - armor));
+              const newHp = ph.currentHp > dmg ? ph.currentHp - dmg : 0;
+              ctx.db.playerHealth.identity.update({ ...ph, currentHp: newHp });
+              if (ctx.db.portalCast.identity.find(pos.identity)) ctx.db.portalCast.identity.delete(pos.identity);
+              if (newHp === 0) handlePlayerDeath(ctx, pos.identity);
+            }
+            updates.mechTimer = now;
+          }
+
+          // Rebuild mechState mask from current head states
+          const freshHeads = [...ctx.db.bossHead.boss_head_boss_id.filter(enemy.id)];
+          const mask = freshHeads
+            .sort((a: any, b: any) => a.headIdx - b.headIdx)
+            .map((h: any) => (!h.cauterized && h.regrowAt === 0n) ? '1' : '0')
+            .join('');
+          updates.mechState = `hydra:${mask}:${phase}`;
+          ctx.db.enemy.id.update(updates);
+
+          // Hydra holds position rather than chasing (heads do the attacking)
+          continue;
+        }
+
         // Bael'Zharon regen (nova mechanic)
         if (mech === 'nova') {
           const regenHp = Math.floor(enemy.maxHp * 0.001);
@@ -1910,8 +1998,29 @@ export const run_combat_tick = spacetimedb.reducer(
     for (const [id, dmg] of enemyDamage) {
       const enemy = ctx.db.enemy.id.find(id);
       if (!enemy) continue;
-      // Phase-immune bosses take no damage
       if (enemy.isBoss && enemy.mechState === 'phaseImmune') continue;
+
+      // ── Hydra: route damage to heads before body ──────────────────────────
+      if (enemy.isBoss && enemy.mechState.startsWith('hydra:')) {
+        const heads = [...ctx.db.bossHead.boss_head_boss_id.filter(enemy.id)];
+        const aliveHeads = heads.filter((h: any) => !h.cauterized && h.regrowAt === 0n);
+        if (aliveHeads.length > 0) {
+          // Concentrate all damage on the lowest-HP alive head (focus target)
+          aliveHeads.sort((a: any, b: any) => a.currentHp - b.currentHp);
+          const target = aliveHeads[0];
+          const newHeadHp = target.currentHp > Math.floor(dmg) ? target.currentHp - Math.floor(dmg) : 0;
+          if (newHeadHp === 0) {
+            const phase = enemy.mechState.endsWith(':1') ? 1 : 0;
+            const regrowDelay = phase === 1 ? HYDRA_REGROW_P2_US : HYDRA_REGROW_US;
+            ctx.db.bossHead.id.update({ ...target, currentHp: 0, regrowAt: now + regrowDelay });
+          } else {
+            ctx.db.bossHead.id.update({ ...target, currentHp: newHeadHp });
+          }
+          continue; // body immune while heads alive
+        }
+        // All heads dead — fall through to body damage
+      }
+
       const newHp = enemy.currentHp > dmg ? enemy.currentHp - Math.floor(dmg) : 0;
       if (newHp === 0) {
         const stats   = ENEMY_STATS[enemy.enemyType] ?? ENEMY_STATS.drudge;
@@ -1947,6 +2056,12 @@ export const run_combat_tick = spacetimedb.reducer(
           }
           awardXpAll(ctx, stats.xp, enemy.worldId);
           awardSkillXpFromKill(ctx, enemy.worldId);
+        }
+        // Clean up hydra heads on boss death
+        if (enemy.isBoss && enemy.mechState.startsWith('hydra:')) {
+          for (const h of ctx.db.bossHead.boss_head_boss_id.filter(enemy.id)) {
+            ctx.db.bossHead.id.delete(h.id);
+          }
         }
         ctx.db.enemy.id.delete(id);
       } else {

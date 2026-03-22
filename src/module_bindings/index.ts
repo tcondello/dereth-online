@@ -59,6 +59,7 @@ import UnequipItemReducer from "./unequip_item_reducer";
 // Import all procedure arg schemas
 
 // Import all table schema definitions
+import BossHeadRow from "./boss_head_table";
 import CharacterRow from "./character_table";
 import EnemyRow from "./enemy_table";
 import ItemRow from "./item_table";
@@ -75,6 +76,23 @@ import WorldPortalRow from "./world_portal_table";
 
 /** The schema information for all tables in this module. This is defined the same was as the tables would have been defined in the server. */
 const tablesSchema = __schema({
+  bossHead: __table({
+    name: 'boss_head',
+    indexes: [
+      { accessor: 'boss_head_boss_id', name: 'boss_head_boss_enemy_id_idx_btree', algorithm: 'btree', columns: [
+        'bossEnemyId',
+      ] },
+      { accessor: 'id', name: 'boss_head_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'boss_head_world_id', name: 'boss_head_world_id_idx_btree', algorithm: 'btree', columns: [
+        'worldId',
+      ] },
+    ],
+    constraints: [
+      { name: 'boss_head_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, BossHeadRow),
   character: __table({
     name: 'character',
     indexes: [
