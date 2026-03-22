@@ -18,8 +18,9 @@ export class VirtualJoystick {
   private readonly MAX_D   = 44; // px — max knob travel from center
 
   constructor() {
-    // Only mount on touch devices
-    if (!('ontouchstart' in window)) {
+    // Use maxTouchPoints — more reliable than ontouchstart across iOS/Android
+    const isTouch = navigator.maxTouchPoints > 0 || 'ontouchstart' in window;
+    if (!isTouch) {
       this.outer = document.createElement('div');
       this.knob  = document.createElement('div');
       return;
@@ -28,6 +29,7 @@ export class VirtualJoystick {
     this.outer = document.createElement('div');
     this.outer.id = 'vjoy-outer';
     this.outer.style.cssText = `
+      display: none;
       position: fixed;
       bottom: calc(120px + env(safe-area-inset-bottom) + 16px);
       left: 20px;
@@ -138,6 +140,13 @@ export class VirtualJoystick {
 
   isActive(): boolean { return this.active; }
 
-  show() { if (this.outer.isConnected) this.outer.style.display = 'flex'; }
-  hide() { if (this.outer.isConnected) this.outer.style.display = 'none'; }
+  show() { if (this.outer.isConnected) this.outer.style.display = 'flex';  }
+  hide() {
+    if (this.outer.isConnected) this.outer.style.display = 'none';
+    // Reset state so movement stops when hidden
+    this.active  = false;
+    this.touchId = null;
+    this.dx      = 0;
+    this.dy      = 0;
+  }
 }

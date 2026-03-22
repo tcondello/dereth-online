@@ -734,6 +734,14 @@ export class GameScene extends Phaser.Scene {
 
   setMobileActions(actions: MobileActions) { this.mobileActions = actions; }
 
+  showMobileControls() {
+    this.joystick?.show();
+  }
+
+  hideMobileControls() {
+    this.joystick?.hide();
+  }
+
   getIsCastingPortal(): boolean { return this.isCastingPortal; }
 
   enterNearestPortal() {

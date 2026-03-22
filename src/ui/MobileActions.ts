@@ -15,7 +15,8 @@ export class MobileActions {
   private readonly isTouch: boolean;
 
   constructor(callbacks: MobileActionCallbacks) {
-    this.isTouch = 'ontouchstart' in window;
+    // maxTouchPoints is more reliable than ontouchstart on iOS Safari + Android Chrome
+    this.isTouch = navigator.maxTouchPoints > 0 || 'ontouchstart' in window;
     if (!this.isTouch) return;
 
     this.el = document.createElement('div');
@@ -26,7 +27,6 @@ export class MobileActions {
       bottom: calc(120px + env(safe-area-inset-bottom) + 16px);
       right: 16px;
       z-index: 460;
-      display: flex;
       flex-direction: column;
       gap: 10px;
       align-items: center;

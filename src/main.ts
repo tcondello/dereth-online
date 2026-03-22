@@ -152,6 +152,7 @@ function updateScreen(scene: GameScene) {
     topBar.hide();
     bottomHud.hide();
     mobileActions.hide();
+    scene.hideMobileControls();
     settingsPanel.hide();
     hubScreen.show(charToState(myChar), getMyItems(), highestFloorCleared);
     // Clear game-side dead overlay so it doesn't bleed through hub
@@ -166,6 +167,7 @@ function updateScreen(scene: GameScene) {
   mobileActions.show();
   scene.setBottomHud(bottomHud);
   scene.setMobileActions(mobileActions);
+  scene.showMobileControls();
   // Apply saved settings when first deploying
   scene.setRadarVisible(settingsPanel.getRadarOn());
   scene.setPixelArtMode(settingsPanel.getPixelArtOn());
