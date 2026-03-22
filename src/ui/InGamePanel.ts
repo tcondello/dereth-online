@@ -188,8 +188,8 @@ export class InGamePanel {
       const cost   = skillXpCost(raised, isSpec);
       const can    = xp >= cost;
       const lvlLabel = isSpec
-        ? '<span style="color:#aa44ee;font-size:7px">Spec</span>'
-        : '<span style="color:#4488ee;font-size:7px">Trd</span>';
+        ? '<span style="background:#2a0d42;border:1px solid #aa44ee;color:#cc88ff;font-size:7px;padding:1px 4px;border-radius:2px;letter-spacing:1px">SPEC</span>'
+        : '<span style="background:#071530;border:1px solid #4488ee;color:#88aaff;font-size:7px;padding:1px 4px;border-radius:2px;letter-spacing:1px">TRD</span>';
       return `<div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0;font-size:9px">
         <span style="color:#aa9977;width:82px">${s.name}</span>
         <span style="width:26px;text-align:center">${lvlLabel}</span>
@@ -217,7 +217,7 @@ export class InGamePanel {
         ${equippedHTML}
       </div>
 
-      <div style="${sectionTitle()}">BACKPACK (${backpack.length}/6) <span style="font-size:8px;color:#443322">(click to equip)</span></div>
+      <div style="${sectionTitle()}">BACKPACK (${backpack.length}/${Math.max(6, Math.floor((char.attrStr + char.raisedStr) / 10))}) <span style="font-size:8px;color:#443322">(click to equip)</span></div>
       <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:10px">
         ${backpackHTML}
       </div>

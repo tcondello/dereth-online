@@ -28,6 +28,7 @@ export class BottomHud {
   private mmCanvas: HTMLCanvasElement;
   private mmCtx:   CanvasRenderingContext2D;
   private mmActive = true;
+  private mmLastDraw = 0;
 
   constructor() {
     this.el = document.createElement('div');
@@ -172,6 +173,9 @@ export class BottomHud {
     portals:      Array<{ x: number; y: number }> = [],
   ) {
     if (!this.mmActive) return;
+    const now = performance.now();
+    if (now - this.mmLastDraw < 67) return; // ~15 fps throttle
+    this.mmLastDraw = now;
     const ctx = this.mmCtx;
     const cx  = MINIMAP_R;
     const cy  = MINIMAP_R;

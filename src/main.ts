@@ -305,7 +305,7 @@ async function initiateConnection() {
             }
             // Set world type so portals render at the correct positions
             for (const w of conn!.db.world.iter()) {
-              if (w.id === worldId) { scene.setMyWorldType(w.worldType); break; }
+              if (w.id === worldId) { scene.setMyWorldType(w.worldType, w.dungeonLevel); break; }
             }
             // Render portals in this world
             for (const wp of conn!.db.worldPortal.iter()) {
@@ -339,7 +339,7 @@ async function initiateConnection() {
           // Sync my world state from world table
           for (const w of conn!.db.world.iter()) {
             if (myWorldId !== null && w.id === myWorldId) {
-              scene.setMyWorldType(w.worldType);
+              scene.setMyWorldType(w.worldType, w.dungeonLevel);
               scene.updateGameState(w.isActive, w.waveNumber, Number(w.nextWaveAtMicros / 1000n), w.waveName, w.wavePhase);
             }
           }
@@ -537,7 +537,7 @@ async function initiateConnection() {
       });
       conn.db.world.onUpdate((_ctx: EventContext, _old, row) => {
         if (myWorldId === null || row.id !== myWorldId) return;
-        scene.setMyWorldType(row.worldType);
+        scene.setMyWorldType(row.worldType, row.dungeonLevel);
         scene.updateGameState(row.isActive, row.waveNumber, Number(row.nextWaveAtMicros / 1000n), row.waveName, row.wavePhase);
       });
 

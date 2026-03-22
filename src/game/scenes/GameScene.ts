@@ -173,13 +173,15 @@ export class GameScene extends Phaser.Scene {
   private bossBarEnemyId: string | null = null;
 
   // Toast queue
-  private toastY = 0;
+  private activeToasts: Phaser.GameObjects.Text[] = [];
 
   // Dead overlay
   private deadOverlay!: Phaser.GameObjects.Container;
 
   // Background graphics (drawn once to a render texture)
   private bgGraphics!: Phaser.GameObjects.Graphics;
+  // Dungeon floor tint overlay
+  private floorTintOverlay: Phaser.GameObjects.Rectangle | null = null;
 
   // HUD extras
   private worldDebugText!: Phaser.GameObjects.Text;
@@ -276,36 +278,34 @@ export class GameScene extends Phaser.Scene {
 
   private buildHUD() {
     // Wave info — top left (below 36px top bar)
-    this.waveText = this.add.text(12, 44, '', {
+    this.waveText = this.add.text(12, 46, '', {
       fontSize: '12px', color: '#c9a96e',
       stroke: '#000000', strokeThickness: 3,
     }).setOrigin(0, 0).setScrollFactor(0).setDepth(200);
 
     // Timer — top left below wave
-    this.timerText = this.add.text(12, 60, '', {
+    this.timerText = this.add.text(12, 62, '', {
       fontSize: '10px', color: '#ffcc44',
       stroke: '#000000', strokeThickness: 2,
     }).setOrigin(0, 0).setScrollFactor(0).setDepth(200);
 
     // Kill count — top left
-    this.killText = this.add.text(12, 74, '', {
+    this.killText = this.add.text(12, 78, '', {
       fontSize: '10px', color: '#aa8855',
       stroke: '#000000', strokeThickness: 2,
     }).setOrigin(0, 0).setScrollFactor(0).setDepth(200);
 
-    // World debug — hidden in production
-    this.worldDebugText = this.add.text(12, 88, '', {
+    // World ID indicator
+    this.worldDebugText = this.add.text(12, 93, '', {
       fontSize: '9px', color: '#6666aa',
       stroke: '#000000', strokeThickness: 1,
-    }).setOrigin(0, 0).setScrollFactor(0).setDepth(200).setVisible(false);
-
-    this.toastY = 80;
+    }).setOrigin(0, 0).setScrollFactor(0).setDepth(200);
 
     // Boss HP bar — centered at top, hidden until a boss spawns
     const W = this.scale.width;
     const barW = Math.min(400, W - 80);
     const barX = W / 2 - barW / 2;
-    const barY = 10;
+    const barY = 46; // 36px TopBar + 10px gap
     const bg   = this.add.rectangle(barX, barY, barW, 14, 0x1a0a0a, 0.92)
       .setOrigin(0, 0).setScrollFactor(0).setDepth(201).setVisible(false);
     const fill = this.add.rectangle(barX, barY, barW, 14, 0xff6600)
@@ -398,7 +398,7 @@ export class GameScene extends Phaser.Scene {
 
     const W = this.scale.width;
     const CX = W / 2;
-    const Y  = this.scale.height - 120;
+    const Y  = this.scale.height - 140;
 
     this.portalBar = {
       bg:  this.add.rectangle(CX - 40, Y, 80, 6, 0x222244, 0.9)
@@ -703,7 +703,16 @@ export class GameScene extends Phaser.Scene {
     if (isBoss && this.bossBar && this.bossBarEnemyId === idStr) {
       const barW = this.bossBar.bg.width;
       this.bossBar.fill.setDisplaySize(Math.max(0, barW * pct), 14);
-      this.bossBar.label.setText(`${currentHp} / ${maxHp}`);
+      // Hydra immunity: no heads alive — body is invulnerable
+      const headMask = mechState.startsWith('hydra:') ? mechState.split(':')[1] : null;
+      const isHydraImmune = headMask !== null && !headMask.includes('1');
+      if (isHydraImmune) {
+        this.bossBar.fill.setFillStyle(0x444444);
+        this.bossBar.label.setText('IMMUNE  ·  sever the heads');
+      } else {
+        this.bossBar.fill.setFillStyle(0xff6600);
+        this.bossBar.label.setText(`${currentHp} / ${maxHp}`);
+      }
     }
   }
 
@@ -1317,22 +1326,23 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  // Stacking loot notification toasts (top-right, slide in, expire)
+  // Stacking loot notification toasts (top-right, slide in, expire, reflow on remove)
   showLootToast(icon: string, message: string, rarity: number) {
     playLootDrop();
-    const W     = this.scale.width;
-    const col   = RARITY_HEX_CSS[rarity] ?? '#888888';
+    const W      = this.scale.width;
+    const col    = RARITY_HEX_CSS[rarity] ?? '#888888';
     const SLOT_H = 26;
-    const y     = 50 + this.toastY;
+    const TOP_Y  = 50;
 
-    const toast = this.add.text(W - 12, y, `${icon}  ${message}`, {
+    const idx   = this.activeToasts.length;
+    const toast = this.add.text(W - 12, TOP_Y + idx * SLOT_H, `${icon}  ${message}`, {
       fontSize: '11px', fontStyle: 'bold',
       color: col, stroke: '#000000', strokeThickness: 3,
       backgroundColor: '#00000099',
       padding: { x: 8, y: 4 },
     }).setOrigin(1, 0).setScrollFactor(0).setDepth(250).setAlpha(0);
 
-    this.toastY += SLOT_H;
+    this.activeToasts.push(toast);
 
     this.tweens.add({
       targets: toast, alpha: 1, duration: 150,
@@ -1340,8 +1350,13 @@ export class GameScene extends Phaser.Scene {
         this.tweens.add({
           targets: toast, alpha: 0, delay: 2500, duration: 400,
           onComplete: () => {
+            const i = this.activeToasts.indexOf(toast);
+            if (i !== -1) this.activeToasts.splice(i, 1);
             toast.destroy();
-            this.toastY = Math.max(0, this.toastY - SLOT_H);
+            // Slide remaining toasts up to fill the gap
+            this.activeToasts.forEach((t, j) => {
+              this.tweens.add({ targets: t, y: TOP_Y + j * SLOT_H, duration: 200, ease: 'Quad.Out' });
+            });
           },
         });
       },
@@ -1350,7 +1365,29 @@ export class GameScene extends Phaser.Scene {
 
   // ── World portals ───────────────────────────────────────────────────────────
 
-  setMyWorldType(type: string) { this.myWorldType = type; }
+  setMyWorldType(type: string, dungeonLevel = 0) {
+    this.myWorldType = type;
+    // Dungeon floor tinting — each floor gets a distinct color overlay
+    this.floorTintOverlay?.destroy();
+    this.floorTintOverlay = null;
+    if (type === 'dungeon' && dungeonLevel >= 1) {
+      const FLOOR_TINTS = [
+        0x3a1a00, // 1: Drudge Warrens — blood brown
+        0x1a0a2a, // 2: Shadow Den — deep violet
+        0x0a1e10, // 3: Banderling Lair — dark teal
+        0x001a10, // 4: Hydra Lair — swamp dark
+        0x0a0a2e, // 5: Virindi Sanctum — void blue
+        0x2a1200, // 6: Tusker Canyon — burnt earth
+        0x120026, // 7: Virindi Apparatus — indigo
+        0x1e0000, // 8: The Horde — dark crimson
+        0x001400, // 9: Olthoi Guard — deep forest
+        0x000016, // 10: Bael'Zharon's Domain — abyss
+      ];
+      const col = FLOOR_TINTS[Math.min(dungeonLevel - 1, FLOOR_TINTS.length - 1)];
+      this.floorTintOverlay = this.add.rectangle(WORLD_WIDTH / 2, WORLD_HEIGHT / 2, WORLD_WIDTH, WORLD_HEIGHT, col, 0.35)
+        .setDepth(2).setScrollFactor(1);
+    }
+  }
 
   setMyWorldId(worldId: bigint) {
     if (this.myWorldId === worldId) return;

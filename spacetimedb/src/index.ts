@@ -983,6 +983,33 @@ function spawnNamedWave(ctx: any, waveNum: number, worldId: bigint): string {
   const def = WAVE_DEFS[idx];
   const seed = BigInt(waveNum) * 999983n + worldId;
   const hpBonus = (waveNum - 1) * 5;
+
+  // Wave 10 climax: spawn Bael'Zharon as arena boss + small escort
+  if (waveNum === 10) {
+    const now  = ctx.timestamp.microsSinceUnixEpoch;
+    const bd   = BOSS_DEFS[9]; // Bael'Zharon
+    const base = ENEMY_STATS[bd.baseType] ?? ENEMY_STATS.drudge;
+    const hp   = Math.floor(base.hp * bd.hpMult);
+    ctx.db.enemy.insert({
+      id: 0n, worldId,
+      enemyType: bd.baseType,
+      x: WORLD_W / 2, y: WORLD_H / 2,
+      currentHp: hp, maxHp: hp,
+      damage: base.damage + bd.damageBonus,
+      isBoss: true, bossLevel: 9,
+      mechTimer: now, mechState: 'normal',
+    });
+    // Small shadow/virindi escort
+    for (let i = 0; i < 6; i++) {
+      const posIdx = prandInt(seed + BigInt(i), 0, SPAWN_POSITIONS.length);
+      const [sx, sy] = SPAWN_POSITIONS[posIdx];
+      const typeIdx  = prandInt(seed + BigInt(i), 1, def.types.length);
+      spawnEnemy(ctx, def.types[typeIdx], sx + prand(seed + BigInt(i), 2) * 60 - 30,
+        sy + prand(seed + BigInt(i), 3) * 60 - 30, worldId, hpBonus);
+    }
+    return def.name;
+  }
+
   for (let i = 0; i < def.count; i++) {
     const posIdx = prandInt(seed + BigInt(i), 0, SPAWN_POSITIONS.length);
     const [sx, sy] = SPAWN_POSITIONS[posIdx];
@@ -1845,6 +1872,34 @@ export const run_enemy_ai = spacetimedb.reducer(
           });
         }
         continue; // skip standard movement block
+      }
+
+      // ── Unicorn charge mechanic ─────────────────────────────────────────────
+      if (enemy.enemyType === 'unicorn' && !enemy.isBoss) {
+        const elapsed = now - enemy.mechTimer;
+        // On first spawn (mechTimer=0n), stagger charge timing by enemy ID
+        if (enemy.mechTimer === 0n) {
+          const offset = (enemy.id * 1234567n) % 6_000_000n;
+          ctx.db.enemy.id.update({ ...enemy, mechTimer: now - offset });
+          continue;
+        }
+        let updates: any = { ...enemy };
+        if (enemy.mechState === 'charging' && elapsed > 1_200_000n) {
+          updates.mechState = 'normal';
+          updates.mechTimer = now;
+        } else if (enemy.mechState !== 'charging' && elapsed > 6_000_000n && found) {
+          updates.mechState = 'charging';
+          updates.mechTimer = now;
+        }
+        if (found && nearestDist > ENEMY_ATTACK_RANGE) {
+          const spd = (ENEMY_STATS.unicorn ?? ENEMY_STATS.drudge).speed * (updates.mechState === 'charging' ? 3.5 : 1.0);
+          const dx = nearestX - updates.x, dy = nearestY - updates.y;
+          const d  = Math.sqrt(dx * dx + dy * dy);
+          updates.x = Math.max(0, Math.min(WORLD_W, updates.x + (dx / d) * spd));
+          updates.y = Math.max(0, Math.min(WORLD_H, updates.y + (dy / d) * spd));
+        }
+        ctx.db.enemy.id.update(updates);
+        continue;
       }
 
       // ── Regular enemy movement ──────────────────────────────────────────────
