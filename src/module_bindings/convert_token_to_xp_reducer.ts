@@ -10,13 +10,4 @@ import {
   type Infer as __Infer,
 } from "spacetimedb";
 
-export default {
-  charName: __t.string(),
-  race: __t.string(),
-  attrStr: __t.u32(),
-  attrEnd: __t.u32(),
-  attrCoord: __t.u32(),
-  attrQuick: __t.u32(),
-  attrFoc: __t.u32(),
-  attrSelf: __t.u32(),
-};
+export default {};

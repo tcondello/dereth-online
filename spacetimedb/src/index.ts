@@ -37,8 +37,6 @@ const HUB_DUNGEON_Y2      = 700;   // floors 6–10
 const ATTR_TOTAL    = 200;
 const ATTR_MIN      = 10;
 const ATTR_MAX      = 100;
-const SKILL_CREDITS = 32;
-const SPEC_CAP      = 70;
 
 const SKILL_UNTRAINED   = 0;
 const SKILL_TRAINED     = 1;
@@ -72,11 +70,6 @@ const RACE_BONUSES: Record<string, Record<string, number>> = {
   umbraen:    { FOC: 5, QUICK: 5 },
 };
 
-const SKILL_COSTS: Record<string, [number, number]> = {
-  heavy:      [6, 6], light:      [4, 4], missile:    [6, 6],
-  war_magic:  [8, 8], life_magic: [6, 6], melee_def:  [4, 4],
-  run:        [2, 2], alchemy:    [2, 2], item_magic: [4, 4],
-};
 
 interface SkillDef { attrs: string[]; div: number; }
 const SKILL_DEFS: Record<string, SkillDef> = {
@@ -139,7 +132,7 @@ function waveTier(waveNum: number): number {
 const GEAR_SLOTS  = ['weapon', 'head', 'chest', 'hands', 'feet', 'trinket'];
 const BONUS_STATS = ['hp', 'sp', 'ar', 'as', 'xp'];
 const ITEM_GROUND_LIFETIME_US = 30_000_000n;
-const BACKPACK_MAX = 6;
+const LOOT_LOG_LIFETIME_US    = 30_000_000n;  // 30 s
 const VAULT_MAX    = 12;
 
 interface GearTemplate { name: string; icon: string; stat: string; base: number; itemType: string; }
@@ -314,6 +307,10 @@ const spacetimedb = schema({
       currentWorldId: t.u64(),
       // The player's persistent home world (set on first deploy)
       homeWorldId: t.u64(),
+      // Usage XP per skill — appended last so migration needs only a default, no reorder
+      xpHeavy: t.u64().default(0n), xpLight: t.u64().default(0n), xpMissile: t.u64().default(0n),
+      xpWarMagic: t.u64().default(0n), xpLifeMagic: t.u64().default(0n), xpItemMagic: t.u64().default(0n),
+      xpMeleeDef: t.u64().default(0n), xpRun: t.u64().default(0n), xpAlchemy: t.u64().default(0n),
     }
   ),
 
@@ -413,6 +410,20 @@ const spacetimedb = schema({
       id:         t.u64().primaryKey().autoInc(),
       worldId:    t.u64(),    // which world this portal lives in
       portalType: t.string(), // 'to_hub' | 'to_grind' | 'to_home'
+    }
+  ),
+
+  // Per-player loot notifications — inserted server-side, expire after 30 s
+  lootLog: table(
+    { name: 'loot_log', public: true,
+      indexes: [{ accessor: 'loot_log_identity', algorithm: 'btree', columns: ['identity'] }] },
+    {
+      id:              t.u64().primaryKey().autoInc(),
+      identity:        t.identity(),
+      icon:            t.string(),
+      message:         t.string(),
+      rarity:          t.u32(),
+      expiresAtMicros: t.u64(),
     }
   ),
 
@@ -637,7 +648,61 @@ function rollArmorItem(seed: bigint, ownerId: any, dropTier: number, x: number, 
   };
 }
 
+// ── Skill XP from weapon use ─────────────────────────────────────────────────────
+
+const SKILL_XP_THRESHOLD = 150n;
+const WEAPON_TO_SKILL: Record<string, string> = {
+  Sword: 'heavy', Axe: 'heavy', Spear: 'heavy',
+  Dagger: 'light', Staff: 'war_magic', Bow: 'missile',
+};
+const SKILL_XP_FIELD: Record<string, string> = {
+  heavy: 'xpHeavy', light: 'xpLight', missile: 'xpMissile',
+  war_magic: 'xpWarMagic', life_magic: 'xpLifeMagic', item_magic: 'xpItemMagic',
+  melee_def: 'xpMeleeDef', run: 'xpRun', alchemy: 'xpAlchemy',
+};
+const SKILL_RAISED_FIELD: Record<string, string> = {
+  heavy: 'raisedSkillHeavy', light: 'raisedSkillLight', missile: 'raisedSkillMissile',
+  war_magic: 'raisedSkillWarMagic', life_magic: 'raisedSkillLifeMagic', item_magic: 'raisedSkillItemMagic',
+  melee_def: 'raisedSkillMeleeDef', run: 'raisedSkillRun', alchemy: 'raisedSkillAlchemy',
+};
+
+function applySkillXp(updates: any, char: any, skillId: string, amount: bigint) {
+  const xpField     = SKILL_XP_FIELD[skillId];
+  const raisedField = SKILL_RAISED_FIELD[skillId];
+  if (!xpField || !raisedField) return;
+  const oldXp  = (updates[xpField] ?? char[xpField]) as bigint;
+  const newXp  = oldXp + amount;
+  updates[xpField] = newXp;
+  const oldLvl = Number(oldXp / SKILL_XP_THRESHOLD);
+  const newLvl = Number(newXp / SKILL_XP_THRESHOLD);
+  if (newLvl > oldLvl) {
+    const raisedCur = updates[raisedField] ?? char[raisedField];
+    updates[raisedField] = raisedCur + (newLvl - oldLvl);
+  }
+}
+
+function awardSkillXpFromKill(ctx: any, worldId: bigint) {
+  for (const char of ctx.db.character.iter()) {
+    if (!char.deployed || char.currentWorldId !== worldId) continue;
+    const hp = ctx.db.playerHealth.identity.find(char.identity);
+    if (!hp || hp.currentHp === 0) continue;
+    const weapon = [...ctx.db.item.item_owner_id.filter(char.identity)]
+      .find((it: any) => it.location === 'equipped' && it.slot === 'weapon');
+    const weaponSkill = weapon ? WEAPON_TO_SKILL[weapon.itemType] : null;
+    const updates: any = { ...char };
+    if (weaponSkill) applySkillXp(updates, char, weaponSkill, 5n);
+    applySkillXp(updates, char, 'melee_def', 2n);
+    ctx.db.character.id.update(updates);
+  }
+}
+
 // ── Character helpers ────────────────────────────────────────────────────────────
+
+// Backpack capacity scales with effective STR: min 6, +1 per 10 points above 60
+function getBackpackMax(char: any): number {
+  const effectiveStr = (char.attrStr as number) + (char.raisedStr as number);
+  return Math.max(6, Math.floor(effectiveStr / 10));
+}
 
 function getActiveChar(ctx: any): any | undefined {
   const player = ctx.db.player.identity.find(ctx.sender);
@@ -887,17 +952,6 @@ function doDeployPlayer(ctx: any, char: any) {
     ...char, deployed: true, currentWorldId: worldId,
     homeWorldId: worldId, lastTokenMicros: now,
   });
-
-  // Auto-start wave 1 the first time someone enters this home world
-  const freshWorld = ctx.db.world.id.find(worldId);
-  if (freshWorld && !freshWorld.isActive) {
-    const waveName = spawnNamedWave(ctx, 1, worldId);
-    ctx.db.world.id.update({
-      ...freshWorld, isActive: true, waveNumber: 1,
-      waveName, wavePhase: 'combat', nextWaveAtMicros: 0n,
-      bellCooldownUntilMicros: 0n,
-    });
-  }
 }
 
 // ── Lifecycle ────────────────────────────────────────────────────────────────────
@@ -992,9 +1046,6 @@ export const create_character = spacetimedb.reducer(
     charName: t.string(), race: t.string(),
     attrStr: t.u32(), attrEnd: t.u32(), attrCoord: t.u32(),
     attrQuick: t.u32(), attrFoc: t.u32(), attrSelf: t.u32(),
-    skillHeavy: t.u32(), skillLight: t.u32(), skillMissile: t.u32(),
-    skillWarMagic: t.u32(), skillLifeMagic: t.u32(), skillItemMagic: t.u32(),
-    skillMeleeDef: t.u32(), skillRun: t.u32(), skillAlchemy: t.u32(),
   },
   (ctx, args) => {
     const charCount = [...ctx.db.character.character_identity.filter(ctx.sender)].length;
@@ -1006,23 +1057,6 @@ export const create_character = spacetimedb.reducer(
       if (v < ATTR_MIN || v > ATTR_MAX) throw new SenderError(`Each attribute must be ${ATTR_MIN}–${ATTR_MAX}`);
     }
 
-    const skills = [args.skillHeavy, args.skillLight, args.skillMissile, args.skillWarMagic,
-      args.skillLifeMagic, args.skillItemMagic, args.skillMeleeDef, args.skillRun, args.skillAlchemy];
-    const skillIds = ['heavy', 'light', 'missile', 'war_magic', 'life_magic', 'item_magic', 'melee_def', 'run', 'alchemy'];
-    let usedCredits = 0, usedSpec = 0;
-    for (let i = 0; i < skills.length; i++) {
-      const lvl = skills[i];
-      if (lvl < 0 || lvl > 2) throw new SenderError(`Invalid skill level`);
-      const costs = SKILL_COSTS[skillIds[i]];
-      if (costs) {
-        usedCredits += lvl >= 1 ? costs[0] : 0;
-        usedCredits += lvl >= 2 ? costs[1] : 0;
-        if (lvl === 2) usedSpec += costs[1];
-      }
-    }
-    if (usedCredits > SKILL_CREDITS) throw new SenderError(`Skill credits over limit (used ${usedCredits})`);
-    if (usedSpec > SPEC_CAP) throw new SenderError(`Specialization credits over cap`);
-
     const newChar = ctx.db.character.insert({
       id: 0n,
       identity: ctx.sender,
@@ -1031,12 +1065,16 @@ export const create_character = spacetimedb.reducer(
       attrQuick: args.attrQuick, attrFoc: args.attrFoc, attrSelf: args.attrSelf,
       raisedStr: 0, raisedEnd: 0, raisedCoord: 0,
       raisedQuick: 0, raisedFoc: 0, raisedSelf: 0,
-      skillHeavy: args.skillHeavy, skillLight: args.skillLight, skillMissile: args.skillMissile,
-      skillWarMagic: args.skillWarMagic, skillLifeMagic: args.skillLifeMagic, skillItemMagic: args.skillItemMagic,
-      skillMeleeDef: args.skillMeleeDef, skillRun: args.skillRun, skillAlchemy: args.skillAlchemy,
+      // All skills start trained — attributes govern effectiveness
+      skillHeavy: 1, skillLight: 1, skillMissile: 1,
+      skillWarMagic: 1, skillLifeMagic: 1, skillItemMagic: 1,
+      skillMeleeDef: 1, skillRun: 1, skillAlchemy: 1,
       raisedSkillHeavy: 0, raisedSkillLight: 0, raisedSkillMissile: 0,
       raisedSkillWarMagic: 0, raisedSkillLifeMagic: 0, raisedSkillItemMagic: 0,
       raisedSkillMeleeDef: 0, raisedSkillRun: 0, raisedSkillAlchemy: 0,
+      xpHeavy: 0n, xpLight: 0n, xpMissile: 0n,
+      xpWarMagic: 0n, xpLifeMagic: 0n, xpItemMagic: 0n,
+      xpMeleeDef: 0n, xpRun: 0n, xpAlchemy: 0n,
       level: 1, totalXp: 0n, unspentXp: 0n, tokens: 0,
       earnedCredits: 0,
       deployed: false, lastTokenMicros: 0n,
@@ -1217,7 +1255,6 @@ export const spend_skill_xp = spacetimedb.reducer(
     };
     const level = skillLevelMap[skillId];
     if (level === undefined) throw new SenderError(`Unknown skill: ${skillId}`);
-    if (level === SKILL_UNTRAINED) throw new SenderError('Cannot raise untrained skill');
     const raisedMap: Record<string, number> = {
       heavy: char.raisedSkillHeavy, light: char.raisedSkillLight, missile: char.raisedSkillMissile,
       war_magic: char.raisedSkillWarMagic, life_magic: char.raisedSkillLifeMagic, item_magic: char.raisedSkillItemMagic,
@@ -1233,6 +1270,54 @@ export const spend_skill_xp = spacetimedb.reducer(
       melee_def: 'raisedSkillMeleeDef', run: 'raisedSkillRun', alchemy: 'raisedSkillAlchemy',
     };
     updates[fieldMap[skillId]] = raised + 1;
+    ctx.db.character.id.update(updates);
+  }
+);
+
+export const convert_token_to_xp = spacetimedb.reducer(ctx => {
+  const char = getActiveChar(ctx);
+  if (!char) throw new SenderError('No character');
+  if (char.tokens < 1) throw new SenderError('No tokens');
+  const earned     = 500n;
+  const newTotal   = char.totalXp + earned;
+  const newUnspent = char.unspentXp + earned;
+  const newLevel   = xpToLevel(newTotal);
+  const newCr      = checkMilestones(newTotal, char.earnedCredits);
+  ctx.db.character.id.update({
+    ...char, tokens: char.tokens - 1,
+    totalXp: newTotal, unspentXp: newUnspent,
+    level: newLevel, earnedCredits: char.earnedCredits + newCr,
+  });
+});
+
+export const specialize_skill = spacetimedb.reducer(
+  { skillId: t.string() },
+  (ctx, { skillId }) => {
+    const char = getActiveChar(ctx);
+    if (!char) throw new SenderError('No character');
+    const skillLevelMap: Record<string, number> = {
+      heavy: char.skillHeavy, light: char.skillLight, missile: char.skillMissile,
+      war_magic: char.skillWarMagic, life_magic: char.skillLifeMagic, item_magic: char.skillItemMagic,
+      melee_def: char.skillMeleeDef, run: char.skillRun, alchemy: char.skillAlchemy,
+    };
+    const level = skillLevelMap[skillId];
+    if (level === undefined) throw new SenderError(`Unknown skill: ${skillId}`);
+    if (level !== SKILL_TRAINED) throw new SenderError('Can only specialize a trained skill');
+    const raisedMap: Record<string, number> = {
+      heavy: char.raisedSkillHeavy, light: char.raisedSkillLight, missile: char.raisedSkillMissile,
+      war_magic: char.raisedSkillWarMagic, life_magic: char.raisedSkillLifeMagic, item_magic: char.raisedSkillItemMagic,
+      melee_def: char.raisedSkillMeleeDef, run: char.raisedSkillRun, alchemy: char.raisedSkillAlchemy,
+    };
+    if ((raisedMap[skillId] ?? 0) < 5) throw new SenderError('Need at least 5 raised points to specialize');
+    const cost = 1000n;
+    if (char.unspentXp < cost) throw new SenderError('Not enough XP to specialize (need 1000)');
+    const fieldMap: Record<string, string> = {
+      heavy: 'skillHeavy', light: 'skillLight', missile: 'skillMissile',
+      war_magic: 'skillWarMagic', life_magic: 'skillLifeMagic', item_magic: 'skillItemMagic',
+      melee_def: 'skillMeleeDef', run: 'skillRun', alchemy: 'skillAlchemy',
+    };
+    const updates: any = { ...char, unspentXp: char.unspentXp - cost };
+    updates[fieldMap[skillId]] = SKILL_SPECIALIZED;
     ctx.db.character.id.update(updates);
   }
 );
@@ -1414,6 +1499,12 @@ export const enter_portal = spacetimedb.reducer(
 
       // Clean up the old dungeon world if this player was the last one in it
       if (currentWorldType === 'dungeon') maybeDeactivateDungeon(ctx, oldWorldId, char?.id);
+
+      // End home world run if this player was the last one in it
+      if (currentWorldType === 'home' && oldWorldId > 0n) {
+        const anyRemaining = [...ctx.db.character.iter()].some(c => c.deployed && c.currentWorldId === oldWorldId);
+        if (!anyRemaining) endRun(ctx, oldWorldId);
+      }
       return;
     }
 
@@ -1447,6 +1538,12 @@ export const enter_portal = spacetimedb.reducer(
 
     // Clean up dungeon world if this player was the last one in it
     if (currentWorldType === 'dungeon') maybeDeactivateDungeon(ctx, oldWorldId, char?.id);
+
+    // End home world run if this player was the last one in it
+    if (currentWorldType === 'home' && oldWorldId > 0n) {
+      const anyRemaining = [...ctx.db.character.iter()].some(c => c.deployed && c.currentWorldId === oldWorldId);
+      if (!anyRemaining) endRun(ctx, oldWorldId);
+    }
   }
 );
 
@@ -1676,20 +1773,80 @@ export const run_enemy_ai = spacetimedb.reducer(
         if (!hp || hp.currentHp === 0) continue;
         if (dist(it.groundX, it.groundY, pos.x, pos.y) > 55) continue;
 
-        const bpCount = [...ctx.db.item.item_owner_id.filter(pos.identity)]
-          .filter(x => x.location === 'backpack').length;
-        if (bpCount >= BACKPACK_MAX) continue;
+        const charRow = [...ctx.db.character.character_identity.filter(pos.identity)].find((c: any) => c.deployed);
+        const bpMax   = charRow ? getBackpackMax(charRow) : 6;
+        const myItems = [...ctx.db.item.item_owner_id.filter(pos.identity)];
+        const bpItems = myItems.filter((x: any) => x.location === 'backpack');
+        const bpCount = bpItems.length;
 
-        const cur = [...ctx.db.item.item_owner_id.filter(pos.identity)]
-          .find(x => x.location === 'equipped' && x.slot === it.slot);
-        const shouldEquip = !cur || it.rarity > cur.rarity ||
-          (it.rarity === cur.rarity && it.val > cur.val);
+        const cur = myItems.find((x: any) => x.location === 'equipped' && x.slot === it.slot);
+        const isBetter = !cur || it.rarity > cur.rarity || (it.rarity === cur.rarity && it.val > cur.val);
 
-        if (shouldEquip) {
-          if (cur) ctx.db.item.id.update({ ...cur, location: 'backpack' });
+        const logExpiry = now + LOOT_LOG_LIFETIME_US;
+
+        if (isBetter) {
+          // New item wins the slot — equip it.
+          // If there's an existing equipped item it moves to backpack; make room if needed.
+          if (cur && bpCount >= bpMax) {
+            // Backpack full — auto-salvage the weakest backpack item to make room
+            const worst = bpItems.reduce((w: any, x: any) =>
+              x.rarity < w.rarity || (x.rarity === w.rarity && x.val < w.val) ? x : w
+            );
+            const char = ctx.db.character.id.find(charRow!.id);
+            if (char) {
+              const xpGain  = BigInt(SALVAGE_XP[Math.min(worst.rarity, 5)] ?? 50);
+              const newTotal   = char.totalXp + xpGain;
+              const newUnspent = char.unspentXp + xpGain;
+              const newLevel   = xpToLevel(newTotal);
+              const newCr      = checkMilestones(newTotal, char.earnedCredits);
+              ctx.db.character.id.update({ ...char, totalXp: newTotal, unspentXp: newUnspent,
+                level: newLevel, earnedCredits: char.earnedCredits + newCr, tokens: char.tokens + newCr });
+            }
+            ctx.db.item.id.delete(worst.id);
+            ctx.db.lootLog.insert({ id: 0n, identity: pos.identity,
+              icon: worst.icon, rarity: worst.rarity, expiresAtMicros: logExpiry,
+              message: `${worst.itemName} auto-salvaged (+${SALVAGE_XP[Math.min(worst.rarity, 5)] ?? 50} XP) — better item found` });
+          }
+
+          // Move currently-equipped item to backpack (if any)
+          if (cur) {
+            ctx.db.item.id.update({ ...cur, location: 'backpack' });
+            ctx.db.lootLog.insert({ id: 0n, identity: pos.identity,
+              icon: cur.icon, rarity: cur.rarity, expiresAtMicros: logExpiry,
+              message: `${cur.itemName} → Backpack (replaced by ${it.itemName})` });
+          }
+
+          // Equip the new item
           ctx.db.item.id.update({ ...it, ownerId: pos.identity, location: 'equipped', expiresAtMicros: 0n, worldId: 0n });
+          ctx.db.lootLog.insert({ id: 0n, identity: pos.identity,
+            icon: it.icon, rarity: it.rarity, expiresAtMicros: logExpiry,
+            message: `${it.itemName} equipped${cur ? ` (replaces ${cur.itemName})` : ''}` });
+
         } else {
-          ctx.db.item.id.update({ ...it, ownerId: pos.identity, location: 'backpack', expiresAtMicros: 0n, worldId: 0n });
+          // Incoming item is weaker than equipped
+          if (bpCount < bpMax) {
+            // Room in backpack — stash it
+            ctx.db.item.id.update({ ...it, ownerId: pos.identity, location: 'backpack', expiresAtMicros: 0n, worldId: 0n });
+            ctx.db.lootLog.insert({ id: 0n, identity: pos.identity,
+              icon: it.icon, rarity: it.rarity, expiresAtMicros: logExpiry,
+              message: `${it.itemName} → Backpack (${bpCount + 1}/${bpMax})` });
+          } else {
+            // Backpack full and item is weaker than equipped — auto-salvage it for XP
+            const char = charRow ? ctx.db.character.id.find(charRow.id) : null;
+            if (char) {
+              const xpGain  = BigInt(SALVAGE_XP[Math.min(it.rarity, 5)] ?? 50);
+              const newTotal   = char.totalXp + xpGain;
+              const newUnspent = char.unspentXp + xpGain;
+              const newLevel   = xpToLevel(newTotal);
+              const newCr      = checkMilestones(newTotal, char.earnedCredits);
+              ctx.db.character.id.update({ ...char, totalXp: newTotal, unspentXp: newUnspent,
+                level: newLevel, earnedCredits: char.earnedCredits + newCr, tokens: char.tokens + newCr });
+            }
+            ctx.db.item.id.delete(it.id);
+            ctx.db.lootLog.insert({ id: 0n, identity: pos.identity,
+              icon: it.icon, rarity: it.rarity, expiresAtMicros: logExpiry,
+              message: `${it.itemName} auto-salvaged (+${SALVAGE_XP[Math.min(it.rarity, 5)] ?? 50} XP) — backpack full (${bpMax}/${bpMax})` });
+          }
         }
         break;
       }
@@ -1720,6 +1877,13 @@ export const run_combat_tick = spacetimedb.reducer(
       if (!hp || hp.currentHp === 0) continue;
       if (char.lastTokenMicros > 0n && (now - char.lastTokenMicros) >= TOKEN_INTERVAL_US) {
         ctx.db.character.id.update({ ...char, tokens: char.tokens + 1, lastTokenMicros: now });
+      }
+    }
+
+    // Prune expired loot log entries
+    for (const entry of ctx.db.lootLog.iter()) {
+      if (entry.expiresAtMicros > 0n && now > entry.expiresAtMicros) {
+        ctx.db.lootLog.id.delete(entry.id);
       }
     }
 
@@ -1760,6 +1924,7 @@ export const run_combat_tick = spacetimedb.reducer(
           const bd       = BOSS_DEFS[enemy.bossLevel];
           const bossXp   = Math.round(stats.xp * bd.xpMult);
           awardXpAll(ctx, bossXp, enemy.worldId);
+          awardSkillXpFromKill(ctx, enemy.worldId);
           // Boss always drops an armor piece at its tier
           ctx.db.item.insert(rollArmorItem(seed, ctx.sender, bd.dropTier, enemy.x, enemy.y, now, enemy.worldId));
           // Bael'Zharon bonus T6 armor drop (30%)
@@ -1781,6 +1946,7 @@ export const run_combat_tick = spacetimedb.reducer(
             ctx.db.item.insert(rollItem(seed, ctx.sender, waveNum, enemy.x, enemy.y, now, enemy.worldId));
           }
           awardXpAll(ctx, stats.xp, enemy.worldId);
+          awardSkillXpFromKill(ctx, enemy.worldId);
         }
         ctx.db.enemy.id.delete(id);
       } else {

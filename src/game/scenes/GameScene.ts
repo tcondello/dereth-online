@@ -11,6 +11,9 @@ import {
   WeaponCategory, getWeaponCategory, isRanged,
   TRAVEL_MS, IMPACT_COLORS, projKey, bakeProjectileTextures,
 } from '../gear/projectile-sprites';
+import {
+  bakeAllEnemyTextures, getEnemyFrameIndex, ENEMY_FRAME_SIZE,
+} from '../enemies/enemy-textures';
 
 const WORLD_WIDTH  = 2400;
 const WORLD_HEIGHT = 2400;
@@ -72,7 +75,14 @@ const RARITY_HEX_CSS = ['#888888', '#4a8a4a', '#4488ee', '#aa44ee', '#ee9922', '
 const RARITY_COLORS = [0x7a7a7a, 0x2aaa2a, 0x4488ee, 0xaa44ee, 0xee9922, 0xffd700];
 
 interface FloatingBar    { bg: Phaser.GameObjects.Rectangle; bar: Phaser.GameObjects.Rectangle; }
-interface EnemyEntry    { body: Phaser.GameObjects.Arc; label: Phaser.GameObjects.Text; hp: FloatingBar; type: string; isBoss: boolean; bossAura?: Phaser.GameObjects.Arc; bossNameTag?: Phaser.GameObjects.Text; }
+interface EnemyEntry    {
+  body: Phaser.GameObjects.Arc; label: Phaser.GameObjects.Text; hp: FloatingBar;
+  type: string; isBoss: boolean;
+  bossAura?: Phaser.GameObjects.Arc; bossNameTag?: Phaser.GameObjects.Text;
+  // Pixel art sprite
+  sprite?: Phaser.GameObjects.Image;
+  spriteDir: string; spriteFrame: number; spriteFrameTimer: number;
+}
 interface PlayerEntry   {
   body: Phaser.GameObjects.Arc; inner: Phaser.GameObjects.Arc;
   label: Phaser.GameObjects.Text; hp: FloatingBar;
@@ -186,6 +196,7 @@ export class GameScene extends Phaser.Scene {
     this.buildPortalVisuals();
     this.buildDeadOverlay();
     bakeProjectileTextures(this);
+    bakeAllEnemyTextures(this);
     this.joystick = new VirtualJoystick();
   }
 
@@ -412,6 +423,7 @@ export class GameScene extends Phaser.Scene {
       entry.inner.setVisible(!enabled);
       if (entry.sprite) entry.sprite.setVisible(enabled);
     }
+    // Enemies always use pixel art sprites — not toggled by pixelArtMode
     for (const [, entry] of this.groundItems) {
       entry.glow.setVisible(!enabled);
       entry.ring.setVisible(!enabled);
@@ -552,25 +564,42 @@ export class GameScene extends Phaser.Scene {
         }).setOrigin(0.5).setDepth(14);
       }
 
-      const body  = this.add.circle(x, y, data.size, data.color).setDepth(10);
+      // Circles are fallback only — hidden when pixel art sprite is available
+      const hasPxSprite = this.textures.exists(`enemy_${enemyType}`);
+      const body  = this.add.circle(x, y, data.size, data.color).setDepth(10).setVisible(!hasPxSprite);
       const label = this.add.text(x, y, baseData.letter, {
         fontSize: `${data.size}px`, fontStyle: 'bold',
         color: '#dddddd', stroke: '#000000', strokeThickness: 2,
-      }).setOrigin(0.5).setDepth(11);
+      }).setOrigin(0.5).setDepth(11).setVisible(!hasPxSprite);
 
       const hpBg  = this.add.rectangle(x, y - data.size - 6, data.size * 2 + 4, isBoss ? 6 : 3, 0x300000).setDepth(12);
       const hpBar = this.add.rectangle(x, y - data.size - 6, data.size * 2 + 4, isBoss ? 6 : 3, isBoss ? 0xff6600 : 0xcc0000)
         .setOrigin(0.5).setDepth(13);
 
-      entry = { body, label, hp: { bg: hpBg, bar: hpBar }, type: enemyType, isBoss, bossAura, bossNameTag };
+      // Pixel art sprite
+      const spriteKey = `enemy_${enemyType}`;
+      const spriteSize = isBoss ? ENEMY_FRAME_SIZE * 2 : ENEMY_FRAME_SIZE;
+      const sprite = this.textures.exists(spriteKey)
+        ? this.add.image(x, y, spriteKey, 0).setDisplaySize(spriteSize, spriteSize).setDepth(10)
+        : undefined;
+
+      entry = {
+        body, label, hp: { bg: hpBg, bar: hpBar }, type: enemyType, isBoss, bossAura, bossNameTag,
+        sprite, spriteDir: 'down', spriteFrame: 0, spriteFrameTimer: 0,
+      };
       this.enemies.set(idStr, entry);
       this.enemyPrevHp.set(idStr, currentHp);
     } else {
+      // Track facing direction from movement delta
+      const dx = x - entry.body.x, dy = y - entry.body.y;
+      if (dx !== 0 || dy !== 0) entry.spriteDir = getFacing(dx, dy);
+
       entry.body.setPosition(x, y);
       entry.label.setPosition(x, y);
       const barY = y - data.size - 6;
       entry.hp.bg.setPosition(x, barY);
       entry.hp.bar.setPosition(x, barY);
+      if (entry.sprite) entry.sprite.setPosition(x, y);
       if (entry.bossAura) entry.bossAura.setPosition(x, y);
       if (entry.bossNameTag) entry.bossNameTag.setPosition(x, y - data.size - 18);
 
@@ -596,6 +625,7 @@ export class GameScene extends Phaser.Scene {
     if (data.xp > 0) this.showXpGain(entry.body.x, entry.body.y, data.xp);
     entry.body.destroy(); entry.label.destroy();
     entry.hp.bg.destroy(); entry.hp.bar.destroy();
+    entry.sprite?.destroy();
     entry.bossAura?.destroy();
     entry.bossNameTag?.destroy();
     this.enemies.delete(idStr);
@@ -704,6 +734,7 @@ export class GameScene extends Phaser.Scene {
     this.tickPortalUI();
     this.tickAutoAttack(delta);
     this.tickRadar();
+    this.tickEnemySprites(delta);
   }
 
   private tickRadar() {
@@ -726,6 +757,18 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.bottomHud.updateMinimap(myX, myY, enemies, otherPlayers);
+  }
+
+  private tickEnemySprites(delta: number) {
+    for (const [, entry] of this.enemies) {
+      if (!entry.sprite) continue;
+      entry.spriteFrameTimer += delta;
+      if (entry.spriteFrameTimer >= 300) {
+        entry.spriteFrame = entry.spriteFrame === 0 ? 1 : 0;
+        entry.spriteFrameTimer = 0;
+      }
+      entry.sprite.setFrame(getEnemyFrameIndex(entry.spriteDir, entry.spriteFrame));
+    }
   }
 
   setRadarVisible(v: boolean) { this.bottomHud?.setMinimapVisible(v); }
@@ -810,6 +853,19 @@ export class GameScene extends Phaser.Scene {
         this.events.emit('move', newX, newY);
       }
     }
+  }
+
+  /** Force-snap the local player sprite to an exact position (e.g. after deploy/respawn). */
+  snapLocalPlayerPosition(x: number, y: number) {
+    if (!this.myIdentityHex) return;
+    const entry = this.players.get(this.myIdentityHex);
+    if (!entry) return;
+    entry.body.setPosition(x, y);
+    entry.inner.setPosition(x, y);
+    entry.label.setPosition(x, y - 20);
+    entry.hp.bg.setPosition(x, y - 16);
+    entry.hp.bar.setPosition(x, y - 16);
+    if (entry.sprite) entry.sprite.setPosition(x, y);
   }
 
   private handleRespawnInput() {
@@ -1140,26 +1196,31 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  // Screen-space toast for item pickup (top-center, fades in/out)
-  showPickupToast(icon: string, itemName: string, rarity: number, destination: string) {
-    const W   = this.scale.width;
-    const col = RARITY_HEX_CSS[rarity] ?? '#888888';
-    const dest = destination === 'equipped' ? '→ Equipped' : '→ Backpack';
+  // Stacking loot notification toasts (top-right, slide in, expire)
+  showLootToast(icon: string, message: string, rarity: number) {
+    const W     = this.scale.width;
+    const col   = RARITY_HEX_CSS[rarity] ?? '#888888';
+    const SLOT_H = 26;
+    const y     = 50 + this.toastY;
 
-    const toast = this.add.text(W / 2, 50, `${icon}  ${itemName}  ${dest}`, {
+    const toast = this.add.text(W - 12, y, `${icon}  ${message}`, {
       fontSize: '11px', fontStyle: 'bold',
       color: col, stroke: '#000000', strokeThickness: 3,
       backgroundColor: '#00000099',
-      padding: { x: 10, y: 5 },
-    }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(250).setAlpha(0);
+      padding: { x: 8, y: 4 },
+    }).setOrigin(1, 0).setScrollFactor(0).setDepth(250).setAlpha(0);
+
+    this.toastY += SLOT_H;
 
     this.tweens.add({
-      targets: toast, alpha: 1,
-      duration: 200,
+      targets: toast, alpha: 1, duration: 150,
       onComplete: () => {
         this.tweens.add({
-          targets: toast, alpha: 0, delay: 1600, duration: 400,
-          onComplete: () => toast.destroy(),
+          targets: toast, alpha: 0, delay: 2500, duration: 400,
+          onComplete: () => {
+            toast.destroy();
+            this.toastY = Math.max(0, this.toastY - SLOT_H);
+          },
         });
       },
     });

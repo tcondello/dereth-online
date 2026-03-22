@@ -23,6 +23,7 @@ const DB_NAME         = import.meta.env.VITE_DB_NAME ?? 'my-spacetime-app-7dl29'
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
   backgroundColor: '#000000',
+  pixelArt: true,
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
@@ -100,17 +101,19 @@ const topBar = new TopBar({
 });
 
 const hubScreen = new HubScreen({
-  onDeploy:          ()        => conn?.reducers.deployPlayer({}),
-  onSpendXp:         (attr)    => conn?.reducers.spendXp({ attribute: attr }),
-  onSpendSkillXp:    (skillId) => conn?.reducers.spendSkillXp({ skillId }),
-  onEquipItem:       (id)      => conn?.reducers.equipItem({ itemId: id }),
-  onUnequipItem:     (id)      => conn?.reducers.unequipItem({ itemId: id }),
-  onSalvageItem:     (id)      => conn?.reducers.salvageItem({ itemId: id }),
-  onSpendToken:      ()        => conn?.reducers.spendToken({}),
-  onSpawnTestLoot:   ()        => conn?.reducers.spawnTestLoot({}),
-  onEnterDungeon:    (level)   => conn?.reducers.enterDungeon({ level }),
-  onSwitchCharacter: ()        => handleSwitchCharacter(),
-  onLogout:          ()        => handleLogout(),
+  onDeploy:             ()        => conn?.reducers.deployPlayer({}),
+  onSpendXp:            (attr)    => conn?.reducers.spendXp({ attribute: attr }),
+  onSpendSkillXp:       (skillId) => conn?.reducers.spendSkillXp({ skillId }),
+  onSpecializeSkill:    (skillId) => conn?.reducers.specializeSkill({ skillId }),
+  onEquipItem:          (id)      => conn?.reducers.equipItem({ itemId: id }),
+  onUnequipItem:        (id)      => conn?.reducers.unequipItem({ itemId: id }),
+  onSalvageItem:        (id)      => conn?.reducers.salvageItem({ itemId: id }),
+  onSpendToken:         ()        => conn?.reducers.spendToken({}),
+  onConvertTokenToXp:   ()        => conn?.reducers.convertTokenToXp({}),
+  onSpawnTestLoot:      ()        => conn?.reducers.spawnTestLoot({}),
+  onEnterDungeon:       (level)   => conn?.reducers.enterDungeon({ level }),
+  onSwitchCharacter:    ()        => handleSwitchCharacter(),
+  onLogout:             ()        => handleLogout(),
 });
 
 // ── Screen routing ─────────────────────────────────────────────────────────────
@@ -195,6 +198,9 @@ function charToState(char: any): CharacterState {
     raisedSkillLifeMagic: char.raisedSkillLifeMagic, raisedSkillItemMagic: char.raisedSkillItemMagic,
     raisedSkillMeleeDef: char.raisedSkillMeleeDef, raisedSkillRun: char.raisedSkillRun,
     raisedSkillAlchemy: char.raisedSkillAlchemy,
+    xpHeavy: char.xpHeavy ?? 0n, xpLight: char.xpLight ?? 0n, xpMissile: char.xpMissile ?? 0n,
+    xpWarMagic: char.xpWarMagic ?? 0n, xpLifeMagic: char.xpLifeMagic ?? 0n, xpItemMagic: char.xpItemMagic ?? 0n,
+    xpMeleeDef: char.xpMeleeDef ?? 0n, xpRun: char.xpRun ?? 0n, xpAlchemy: char.xpAlchemy ?? 0n,
   };
 }
 
@@ -366,6 +372,7 @@ async function initiateConnection() {
           'SELECT * FROM portal_cast',
           'SELECT * FROM world',
           'SELECT * FROM player_progress',
+          'SELECT * FROM loot_log',
         ]);
 
       // ── Player table ────────────────────────────────────────────────────────
@@ -450,6 +457,12 @@ async function initiateConnection() {
         if (row.deployed) {
           const equipped = getMyItems().filter(i => i.location === 'equipped');
           scene.updateGearHud(equipped);
+          inGamePanel.update(charToState(row), getMyItems());
+          // Snap sprite to server spawn position on deploy/respawn
+          if (!old.deployed) {
+            const pos = [...conn!.db.playerPosition.iter()].find(p => p.identity.toHexString() === myIdentityHex);
+            if (pos) scene.snapLocalPlayerPosition(pos.x, pos.y);
+          }
         }
       });
 
@@ -475,10 +488,6 @@ async function initiateConnection() {
           scene.upsertGroundItem(idStr, row.groundX, row.groundY, row.icon, row.rarity, row.itemType ?? '', row.paletteGame ?? '', row.stat, row.val, row.bonusStat, row.bonusVal);
         } else if (old.location === 'ground') {
           scene.removeGroundItem(idStr);
-          // Show pickup toast if this item just came to me
-          if (row.ownerId.toHexString() === myIdentityHex) {
-            scene.showPickupToast(row.icon, row.itemName, row.rarity, row.location);
-          }
         }
         if (row.ownerId.toHexString() === myIdentityHex) {
           refreshHub();
@@ -495,6 +504,13 @@ async function initiateConnection() {
           refreshHub();
           const equipped = getMyItems().filter(i => i.location === 'equipped');
           scene.updateGearHud(equipped);
+        }
+      });
+
+      // ── Loot log table ──────────────────────────────────────────────────────
+      conn.db.lootLog.onInsert((_ctx: EventContext, row) => {
+        if (row.identity.toHexString() === myIdentityHex) {
+          scene.showLootToast(row.icon, row.message, row.rarity);
         }
       });
 

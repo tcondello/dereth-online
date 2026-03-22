@@ -5,9 +5,6 @@ export interface CharacterData {
   charName: string; race: string;
   attrStr: number; attrEnd: number; attrCoord: number;
   attrQuick: number; attrFoc: number; attrSelf: number;
-  skillHeavy: number; skillLight: number; skillMissile: number;
-  skillWarMagic: number; skillLifeMagic: number; skillItemMagic: number;
-  skillMeleeDef: number; skillRun: number; skillAlchemy: number;
 }
 
 const RACES = [
@@ -27,23 +24,9 @@ const ATTRS = [
   { k: 'SELF',  n: 'Self' },
 ];
 
-const SKILLS = [
-  { id: 'skillHeavy',    name: 'Heavy Weapons', icon: '⚔️',  costs: [6, 6],  cat: 'Combat',  formula: '(STR+COORD)/3' },
-  { id: 'skillLight',    name: 'Light Weapons', icon: '🗡️',  costs: [4, 4],  cat: 'Combat',  formula: '(COORD+QUICK)/3' },
-  { id: 'skillMissile',  name: 'Missile',       icon: '🏹',  costs: [6, 6],  cat: 'Combat',  formula: 'COORD/2' },
-  { id: 'skillWarMagic', name: 'War Magic',     icon: '🔥',  costs: [8, 8],  cat: 'Magic',   formula: '(FOC+SELF)/3' },
-  { id: 'skillLifeMagic',name: 'Life Magic',    icon: '💚',  costs: [6, 6],  cat: 'Magic',   formula: '(FOC+SELF)/3' },
-  { id: 'skillItemMagic',name: 'Item Magic',    icon: '🌀',  costs: [4, 4],  cat: 'Magic',   formula: '(FOC+SELF)/3' },
-  { id: 'skillMeleeDef', name: 'Melee Defense', icon: '🛡️',  costs: [4, 4],  cat: 'Defense', formula: '(COORD+QUICK)/3' },
-  { id: 'skillRun',      name: 'Run',           icon: '👟',  costs: [2, 2],  cat: 'General', formula: 'QUICK' },
-  { id: 'skillAlchemy',  name: 'Alchemy',       icon: '⚗️',  costs: [2, 2],  cat: 'Trade',   formula: '(FOC+COORD)/3' },
-];
-
 const ATTR_TOTAL = 200;
 const ATTR_MIN   = 10;
 const ATTR_MAX   = 100;
-const TOTAL_CREDITS = 32;
-const SPEC_CAP   = 70;
 
 export class CharacterCreate {
   private overlay: HTMLElement;
@@ -52,11 +35,9 @@ export class CharacterCreate {
   // State
   private selectedRace: string | null = null;
   private attrs: Record<string, number> = { STR: 10, END: 10, COORD: 10, QUICK: 10, FOC: 10, SELF: 10 };
-  private skills: Record<string, number> = {};
 
   constructor(onSubmit: (data: CharacterData) => void) {
     this.onSubmit = onSubmit;
-    for (const s of SKILLS) this.skills[s.id] = 0;
     this.overlay = this.createOverlay();
     document.body.appendChild(this.overlay);
     this.render();
@@ -83,7 +64,7 @@ export class CharacterCreate {
       <div style="font-size:32px;letter-spacing:6px;text-shadow:0 0 30px rgba(200,160,80,.4);margin:10px 0 4px">DERETH SURVIVORS</div>
       <div style="font-size:11px;color:#665544;letter-spacing:3px;margin-bottom:16px">CREATE YOUR CHARACTER</div>
 
-      <div style="display:flex;gap:14px;max-width:940px;width:100%;flex-wrap:wrap;justify-content:center">
+      <div style="display:flex;gap:14px;max-width:640px;width:100%;flex-wrap:wrap;justify-content:center">
 
         <!-- Identity panel -->
         <div id="cc-identity" style="min-width:220px;max-width:300px;flex:1;background:linear-gradient(180deg,#141020,#0c0814);border:1px solid #2a2a3a;border-radius:8px;padding:14px">
@@ -93,6 +74,7 @@ export class CharacterCreate {
           <div id="cc-races" style="display:flex;gap:4px;flex-wrap:wrap;justify-content:center;margin-bottom:8px"></div>
           <div id="cc-race-desc" style="font-size:9px;color:#776655;text-align:center;min-height:16px"></div>
           <div id="cc-race-mastery" style="font-size:8px;color:#aa8844;text-align:center;margin-top:2px"></div>
+          <div style="font-size:8px;color:#554433;text-align:center;margin-top:8px;line-height:1.5">All skills start trained.<br>Attributes govern effectiveness.<br>Specialize skills in-game with XP.</div>
         </div>
 
         <!-- Attributes panel -->
@@ -104,17 +86,6 @@ export class CharacterCreate {
           <div style="margin-top:8px;text-align:center;font-size:10px">Health: <span id="cc-hp" style="color:#cc4444;font-weight:bold">—</span></div>
         </div>
 
-        <!-- Skills panel -->
-        <div style="min-width:220px;max-width:300px;flex:1;background:linear-gradient(180deg,#141020,#0c0814);border:1px solid #2a2a3a;border-radius:8px;padding:14px">
-          <div style="font-size:12px;letter-spacing:2px;margin-bottom:6px;text-align:center;color:#aa9060;border-bottom:1px solid #2a2a3a;padding-bottom:5px">SKILLS</div>
-          <div style="font-size:8px;color:#665544;text-align:center;margin-bottom:4px">32 credits · Train → Specialize · Spec cap: 70</div>
-          <div id="cc-skill-info" style="text-align:center;font-size:10px;color:#aa9060;margin-bottom:6px">
-            Credits: <span id="cc-credits" style="color:#44aaff;font-weight:bold">32</span>
-            · Spec: <span id="cc-spec" style="color:#44aaff">0</span>/70
-          </div>
-          <div id="cc-skills" style="display:flex;flex-direction:column;gap:3px;max-height:280px;overflow-y:auto"></div>
-        </div>
-
       </div>
 
       <button id="cc-submit" disabled style="margin-top:16px;padding:10px 40px;font-size:14px;font-family:Georgia,serif;background:linear-gradient(180deg,#2a2035,#1a1028);color:#c9a96e;border:1px solid #5a4a3a;border-radius:4px;cursor:pointer;letter-spacing:3px">ENTER DERETH</button>
@@ -123,7 +94,6 @@ export class CharacterCreate {
 
     this.buildRaces();
     this.buildAttrs();
-    this.buildSkills();
     this.bindEvents();
     this.update();
   }
@@ -170,39 +140,6 @@ export class CharacterCreate {
     }
   }
 
-  private buildSkills() {
-    const container = document.getElementById('cc-skills')!;
-    let lastCat = '';
-    for (const s of SKILLS) {
-      if (s.cat !== lastCat) {
-        const h = document.createElement('div');
-        h.style.cssText = 'font-size:7px;color:#554433;letter-spacing:2px;padding:4px 4px 1px;text-transform:uppercase';
-        h.textContent = s.cat;
-        container.appendChild(h);
-        lastCat = s.cat;
-      }
-      const row = document.createElement('div');
-      row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:3px 4px;border-radius:3px;background:#0c0814;';
-      row.innerHTML = `
-        <div style="display:flex;align-items:center;gap:5px">
-          <span style="font-size:12px">${s.icon}</span>
-          <div>
-            <div style="font-size:9px;color:#aa9977">${s.name}</div>
-            <div style="font-size:7px;color:#554433">${s.formula}</div>
-          </div>
-        </div>
-        <div style="display:flex;align-items:center;gap:6px">
-          <span id="sv-${s.id}" style="font-size:8px;color:#44aaff;min-width:22px;text-align:right">—</span>
-          <span id="sc-${s.id}" style="font-size:7px;color:#554433;min-width:38px;text-align:right"></span>
-          <button id="sb-${s.id}" data-skill="${s.id}" class="skill-btn"
-            style="font-size:8px;padding:2px 6px;border-radius:3px;cursor:pointer;border:1px solid #2a2a3a;background:#0a0814;color:#554433;letter-spacing:1px;font-family:Georgia,serif">
-            Untrained
-          </button>
-        </div>`;
-      container.appendChild(row);
-    }
-  }
-
   private bindEvents() {
     document.getElementById('cc-name')!.addEventListener('input', () => this.update());
 
@@ -223,25 +160,6 @@ export class CharacterCreate {
         }
       }
 
-      // Skill buttons
-      if (target.classList.contains('skill-btn')) {
-        const skillId = target.dataset.skill!;
-        const skill   = SKILLS.find(s => s.id === skillId)!;
-        const cur     = this.skills[skillId];
-        const cred    = this.creditsSpent();
-        const spec    = this.specCredits();
-        const [tc, sc] = skill.costs;
-
-        if (cur === 0) {
-          if (cred + tc <= TOTAL_CREDITS) { this.skills[skillId] = 1; }
-        } else if (cur === 1) {
-          if (cred + sc <= TOTAL_CREDITS && spec + tc + sc <= SPEC_CAP) { this.skills[skillId] = 2; }
-          else { this.skills[skillId] = 0; } // toggle back to untrained
-        } else {
-          this.skills[skillId] = 0;
-        }
-        this.update();
-      }
     });
 
     document.getElementById('cc-submit')!.addEventListener('click', () => {
@@ -251,15 +169,6 @@ export class CharacterCreate {
         charName: name, race: this.selectedRace!,
         attrStr: this.attrs.STR, attrEnd: this.attrs.END, attrCoord: this.attrs.COORD,
         attrQuick: this.attrs.QUICK, attrFoc: this.attrs.FOC, attrSelf: this.attrs.SELF,
-        skillHeavy:    this.skills.skillHeavy,
-        skillLight:    this.skills.skillLight,
-        skillMissile:  this.skills.skillMissile,
-        skillWarMagic: this.skills.skillWarMagic,
-        skillLifeMagic:this.skills.skillLifeMagic,
-        skillItemMagic:this.skills.skillItemMagic,
-        skillMeleeDef: this.skills.skillMeleeDef,
-        skillRun:      this.skills.skillRun,
-        skillAlchemy:  this.skills.skillAlchemy,
       });
     });
   }
@@ -267,8 +176,6 @@ export class CharacterCreate {
   private update() {
     const spent = Object.values(this.attrs).reduce((a, b) => a + b, 0) - 6 * ATTR_MIN;
     const free  = (ATTR_TOTAL - 6 * ATTR_MIN) - spent;
-    const cred  = this.creditsSpent();
-    const spec  = this.specCredits();
 
     // Unspent display
     const unspentEl = document.getElementById('cc-attr-unspent');
@@ -301,89 +208,9 @@ export class CharacterCreate {
       btn.style.opacity = btn.disabled ? '0.2' : '1';
     });
 
-    // Credits display
-    const credEl = document.getElementById('cc-credits');
-    const specEl = document.getElementById('cc-spec');
-    if (credEl) credEl.textContent = String(TOTAL_CREDITS - cred);
-    if (specEl) specEl.textContent = String(spec);
-
-    // Skill buttons
-    for (const s of SKILLS) {
-      const btn = document.getElementById(`sb-${s.id}`) as HTMLButtonElement;
-      const val = document.getElementById(`sv-${s.id}`);
-      const cost = document.getElementById(`sc-${s.id}`);
-      if (!btn) continue;
-
-      const level = this.skills[s.id];
-      const [tc, sc] = s.costs;
-      const canTrain = cred + tc <= TOTAL_CREDITS;
-      const canSpec  = cred + sc <= TOTAL_CREDITS && spec + tc + sc <= SPEC_CAP;
-
-      if (level === 0) {
-        btn.textContent = 'Untrained';
-        btn.style.cssText = skillBtnStyle('#554433', '#2a2a3a', '#0a0814');
-        btn.style.opacity = canTrain ? '1' : '0.4';
-        if (cost) cost.textContent = `T:${tc}`;
-      } else if (level === 1) {
-        btn.textContent = 'Trained';
-        btn.style.cssText = skillBtnStyle('#2aaa2a', '#2a8a2a', '#0a1a0a');
-        btn.style.opacity = '1';
-        if (cost) cost.textContent = canSpec ? `S:${sc}` : `(${sc})`;
-      } else {
-        btn.textContent = 'Spec';
-        btn.style.cssText = skillBtnStyle('#ccaa22', '#aa8822', '#1a1a0a');
-        btn.style.opacity = '1';
-        if (cost) cost.textContent = `${tc + sc}`;
-      }
-
-      // Skill base value preview
-      if (val) {
-        const base = this.skillBase(s.id);
-        val.textContent = level > 0 ? String(base + (level === 2 ? 10 : 0)) : '—';
-      }
-    }
-
     // Submit button
     const submit = document.getElementById('cc-submit') as HTMLButtonElement;
     if (submit) submit.disabled = !this.canSubmit();
-  }
-
-  private skillBase(skillId: string): number {
-    const s = SKILLS.find(s => s.id === skillId);
-    if (!s) return 0;
-    const race = RACES.find(r => r.id === this.selectedRace);
-    const bonus = (k: string) => (race?.bonus?.[k as keyof typeof race.bonus] as number) ?? 0;
-    const a = (k: string) => this.attrs[k] + bonus(k);
-    switch (skillId) {
-      case 'skillHeavy':    return Math.floor((a('STR') + a('COORD')) / 3);
-      case 'skillLight':    return Math.floor((a('COORD') + a('QUICK')) / 3);
-      case 'skillMissile':  return Math.floor(a('COORD') / 2);
-      case 'skillWarMagic': return Math.floor((a('FOC') + a('SELF')) / 3);
-      case 'skillLifeMagic':return Math.floor((a('FOC') + a('SELF')) / 3);
-      case 'skillItemMagic':return Math.floor((a('FOC') + a('SELF')) / 3);
-      case 'skillMeleeDef': return Math.floor((a('COORD') + a('QUICK')) / 3);
-      case 'skillRun':      return a('QUICK');
-      case 'skillAlchemy':  return Math.floor((a('FOC') + a('COORD')) / 3);
-      default: return 0;
-    }
-  }
-
-  private creditsSpent(): number {
-    let c = 0;
-    for (const s of SKILLS) {
-      const level = this.skills[s.id];
-      if (level >= 1) c += s.costs[0];
-      if (level >= 2) c += s.costs[1];
-    }
-    return c;
-  }
-
-  private specCredits(): number {
-    let c = 0;
-    for (const s of SKILLS) {
-      if (this.skills[s.id] >= 2) c += s.costs[0] + s.costs[1];
-    }
-    return c;
   }
 
   private canSubmit(): boolean {
@@ -402,6 +229,3 @@ function btnStyle(): string {
   return 'width:22px;height:22px;background:#1a1028;border:1px solid #3a2a4a;border-radius:3px;color:#c9a96e;font-size:11px;cursor:pointer;font-family:Georgia,serif;';
 }
 
-function skillBtnStyle(color: string, border: string, bg: string): string {
-  return `font-size:8px;padding:2px 6px;border-radius:3px;cursor:pointer;border:1px solid ${border};background:${bg};color:${color};letter-spacing:1px;font-family:Georgia,serif;`;
-}

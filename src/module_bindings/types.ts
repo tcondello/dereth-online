@@ -54,6 +54,15 @@ export const Character = __t.object("Character", {
   lastTokenMicros: __t.u64(),
   currentWorldId: __t.u64(),
   homeWorldId: __t.u64(),
+  xpHeavy: __t.u64(),
+  xpLight: __t.u64(),
+  xpMissile: __t.u64(),
+  xpWarMagic: __t.u64(),
+  xpLifeMagic: __t.u64(),
+  xpItemMagic: __t.u64(),
+  xpMeleeDef: __t.u64(),
+  xpRun: __t.u64(),
+  xpAlchemy: __t.u64(),
 });
 export type Character = __Infer<typeof Character>;
 
@@ -112,6 +121,16 @@ export const Item = __t.object("Item", {
   paletteGame: __t.string(),
 });
 export type Item = __Infer<typeof Item>;
+
+export const LootLog = __t.object("LootLog", {
+  id: __t.u64(),
+  identity: __t.identity(),
+  icon: __t.string(),
+  message: __t.string(),
+  rarity: __t.u32(),
+  expiresAtMicros: __t.u64(),
+});
+export type LootLog = __Infer<typeof LootLog>;
 
 export const OlthoiLayerSchedule = __t.object("OlthoiLayerSchedule", {
   scheduledId: __t.u64(),

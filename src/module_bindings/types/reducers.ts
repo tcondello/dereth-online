@@ -7,6 +7,7 @@ import { type Infer as __Infer } from "spacetimedb";
 
 // Import all reducer arg schemas
 import CancelPortalCastReducer from "../cancel_portal_cast_reducer";
+import ConvertTokenToXpReducer from "../convert_token_to_xp_reducer";
 import CreateCharacterReducer from "../create_character_reducer";
 import DeployPlayerReducer from "../deploy_player_reducer";
 import EnterDungeonReducer from "../enter_dungeon_reducer";
@@ -20,6 +21,7 @@ import SalvageItemReducer from "../salvage_item_reducer";
 import SelectCharacterReducer from "../select_character_reducer";
 import SetPlayerNameReducer from "../set_player_name_reducer";
 import SpawnTestLootReducer from "../spawn_test_loot_reducer";
+import SpecializeSkillReducer from "../specialize_skill_reducer";
 import SpendSkillXpReducer from "../spend_skill_xp_reducer";
 import SpendTokenReducer from "../spend_token_reducer";
 import SpendXpReducer from "../spend_xp_reducer";
@@ -27,6 +29,7 @@ import StartPortalCastReducer from "../start_portal_cast_reducer";
 import UnequipItemReducer from "../unequip_item_reducer";
 
 export type CancelPortalCastParams = __Infer<typeof CancelPortalCastReducer>;
+export type ConvertTokenToXpParams = __Infer<typeof ConvertTokenToXpReducer>;
 export type CreateCharacterParams = __Infer<typeof CreateCharacterReducer>;
 export type DeployPlayerParams = __Infer<typeof DeployPlayerReducer>;
 export type EnterDungeonParams = __Infer<typeof EnterDungeonReducer>;
@@ -40,6 +43,7 @@ export type SalvageItemParams = __Infer<typeof SalvageItemReducer>;
 export type SelectCharacterParams = __Infer<typeof SelectCharacterReducer>;
 export type SetPlayerNameParams = __Infer<typeof SetPlayerNameReducer>;
 export type SpawnTestLootParams = __Infer<typeof SpawnTestLootReducer>;
+export type SpecializeSkillParams = __Infer<typeof SpecializeSkillReducer>;
 export type SpendSkillXpParams = __Infer<typeof SpendSkillXpReducer>;
 export type SpendTokenParams = __Infer<typeof SpendTokenReducer>;
 export type SpendXpParams = __Infer<typeof SpendXpReducer>;

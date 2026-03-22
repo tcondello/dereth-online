@@ -54,4 +54,13 @@ export default __t.row({
   lastTokenMicros: __t.u64().name("last_token_micros"),
   currentWorldId: __t.u64().name("current_world_id"),
   homeWorldId: __t.u64().name("home_world_id"),
+  xpHeavy: __t.u64().name("xp_heavy"),
+  xpLight: __t.u64().name("xp_light"),
+  xpMissile: __t.u64().name("xp_missile"),
+  xpWarMagic: __t.u64().name("xp_war_magic"),
+  xpLifeMagic: __t.u64().name("xp_life_magic"),
+  xpItemMagic: __t.u64().name("xp_item_magic"),
+  xpMeleeDef: __t.u64().name("xp_melee_def"),
+  xpRun: __t.u64().name("xp_run"),
+  xpAlchemy: __t.u64().name("xp_alchemy"),
 });

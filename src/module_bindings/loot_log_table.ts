@@ -10,13 +10,11 @@ import {
   type Infer as __Infer,
 } from "spacetimedb";
 
-export default {
-  charName: __t.string(),
-  race: __t.string(),
-  attrStr: __t.u32(),
-  attrEnd: __t.u32(),
-  attrCoord: __t.u32(),
-  attrQuick: __t.u32(),
-  attrFoc: __t.u32(),
-  attrSelf: __t.u32(),
-};
+export default __t.row({
+  id: __t.u64().primaryKey(),
+  identity: __t.identity(),
+  icon: __t.string(),
+  message: __t.string(),
+  rarity: __t.u32(),
+  expiresAtMicros: __t.u64().name("expires_at_micros"),
+});

@@ -35,6 +35,7 @@ import {
 
 // Import all reducer arg schemas
 import CancelPortalCastReducer from "./cancel_portal_cast_reducer";
+import ConvertTokenToXpReducer from "./convert_token_to_xp_reducer";
 import CreateCharacterReducer from "./create_character_reducer";
 import DeployPlayerReducer from "./deploy_player_reducer";
 import EnterDungeonReducer from "./enter_dungeon_reducer";
@@ -48,6 +49,7 @@ import SalvageItemReducer from "./salvage_item_reducer";
 import SelectCharacterReducer from "./select_character_reducer";
 import SetPlayerNameReducer from "./set_player_name_reducer";
 import SpawnTestLootReducer from "./spawn_test_loot_reducer";
+import SpecializeSkillReducer from "./specialize_skill_reducer";
 import SpendSkillXpReducer from "./spend_skill_xp_reducer";
 import SpendTokenReducer from "./spend_token_reducer";
 import SpendXpReducer from "./spend_xp_reducer";
@@ -60,6 +62,7 @@ import UnequipItemReducer from "./unequip_item_reducer";
 import CharacterRow from "./character_table";
 import EnemyRow from "./enemy_table";
 import ItemRow from "./item_table";
+import LootLogRow from "./loot_log_table";
 import PlayerRow from "./player_table";
 import PlayerHealthRow from "./player_health_table";
 import PlayerPositionRow from "./player_position_table";
@@ -114,6 +117,20 @@ const tablesSchema = __schema({
       { name: 'item_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, ItemRow),
+  lootLog: __table({
+    name: 'loot_log',
+    indexes: [
+      { accessor: 'id', name: 'loot_log_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'loot_log_identity', name: 'loot_log_identity_idx_btree', algorithm: 'btree', columns: [
+        'identity',
+      ] },
+    ],
+    constraints: [
+      { name: 'loot_log_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, LootLogRow),
   player: __table({
     name: 'player',
     indexes: [
@@ -199,6 +216,7 @@ const tablesSchema = __schema({
 /** The schema information for all reducers in this module. This is defined the same way as the reducers would have been defined in the server, except the body of the reducer is omitted in code generation. */
 const reducersSchema = __reducers(
   __reducerSchema("cancel_portal_cast", CancelPortalCastReducer),
+  __reducerSchema("convert_token_to_xp", ConvertTokenToXpReducer),
   __reducerSchema("create_character", CreateCharacterReducer),
   __reducerSchema("deploy_player", DeployPlayerReducer),
   __reducerSchema("enter_dungeon", EnterDungeonReducer),
@@ -212,6 +230,7 @@ const reducersSchema = __reducers(
   __reducerSchema("select_character", SelectCharacterReducer),
   __reducerSchema("set_player_name", SetPlayerNameReducer),
   __reducerSchema("spawn_test_loot", SpawnTestLootReducer),
+  __reducerSchema("specialize_skill", SpecializeSkillReducer),
   __reducerSchema("spend_skill_xp", SpendSkillXpReducer),
   __reducerSchema("spend_token", SpendTokenReducer),
   __reducerSchema("spend_xp", SpendXpReducer),
