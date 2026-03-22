@@ -1,10 +1,16 @@
 import Phaser from 'phaser';
 import { BottomHud } from '../../ui/BottomHud';
+import { VirtualJoystick } from '../../ui/VirtualJoystick';
+import { MobileActions } from '../../ui/MobileActions';
 import {
   bakePlayerTexture, bakeGroundItemTexture,
   equippedHash, getFrameIndex, EquippedPxItem, FRAME_WIDTH,
 } from '../gear/phaser-sprites';
 import { getFacing } from '../gear/sprite-system';
+import {
+  WeaponCategory, getWeaponCategory, isRanged,
+  TRAVEL_MS, IMPACT_COLORS, projKey, bakeProjectileTextures,
+} from '../gear/projectile-sprites';
 
 const WORLD_WIDTH  = 2400;
 const WORLD_HEIGHT = 2400;
@@ -128,6 +134,10 @@ export class GameScene extends Phaser.Scene {
   // Bottom HUD (HTML overlay)
   private bottomHud: BottomHud | null = null;
 
+  // Mobile controls
+  private joystick:      VirtualJoystick | null = null;
+  private mobileActions: MobileActions   | null = null;
+
   // Player stats (updated from server)
   private myLevel     = 1;
   private myUnspentXp = 0;
@@ -160,8 +170,9 @@ export class GameScene extends Phaser.Scene {
   private attackTimer = 0;
   private readonly BASE_ATTACK_INTERVAL_MS = 500; // matches server CMB_INTERVAL_US
   private readonly CLIENT_ATTACK_RANGE = 160;
-  private equippedWeaponIcon = '';
-  private attackSpeedBonus   = 0; // sum of equipped 'as' stat bonuses
+  private equippedWeaponIcon     = '';
+  private equippedWeaponItemType = '';
+  private attackSpeedBonus       = 0; // sum of equipped 'as' stat bonuses
   private enemyPrevHp = new Map<string, number>();
 
   constructor() { super({ key: 'GameScene' }); }
@@ -174,6 +185,8 @@ export class GameScene extends Phaser.Scene {
     this.buildWaveBanner();
     this.buildPortalVisuals();
     this.buildDeadOverlay();
+    bakeProjectileTextures(this);
+    this.joystick = new VirtualJoystick();
   }
 
   // ── World ──────────────────────────────────────────────────────────────────────
@@ -207,7 +220,8 @@ export class GameScene extends Phaser.Scene {
 
   private setupCamera() {
     this.cameras.main.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
-    this.cameras.main.setZoom(1.5);
+    const zoom = window.innerWidth < 768 ? 1.0 : 1.5;
+    this.cameras.main.setZoom(zoom);
   }
 
   private setupInput() {
@@ -257,9 +271,10 @@ export class GameScene extends Phaser.Scene {
     this.toastY = 80;
   }
 
-  updateGearHud(equipped: Array<{ slot: string; rarity: number; icon: string; stat: string; val: number; bonusStat: string; bonusVal: number }>) {
+  updateGearHud(equipped: Array<{ slot: string; rarity: number; icon: string; stat: string; val: number; bonusStat: string; bonusVal: number; itemType?: string; paletteGame?: string }>) {
     const weapon = equipped.find(e => e.slot === 'weapon');
-    this.equippedWeaponIcon = weapon?.icon ?? '';
+    this.equippedWeaponIcon     = weapon?.icon     ?? '';
+    this.equippedWeaponItemType = weapon?.itemType ?? '';
 
     // Compute total attack speed bonus from all equipped items
     this.attackSpeedBonus = equipped.reduce((sum, it) => {
@@ -407,13 +422,14 @@ export class GameScene extends Phaser.Scene {
 
   // Called from main.ts when local player equips/unequips an item
   rebakeLocalPlayerSprite(equipped: Array<{ slot: string; itemType?: string; paletteGame?: string; rarity: number }>) {
-    if (!this.myIdentityHex) return;
-    const entry = this.players.get(this.myIdentityHex);
-    if (!entry || !entry.sprite) return;
-
+    // Always update the cache so upsertPlayerSprite reads the right gear even if called before the sprite exists
     this.myEquippedPx = equipped
       .filter(e => e.itemType && e.paletteGame)
       .map(e => ({ itemType: e.itemType!, paletteGame: e.paletteGame!, rarity: e.rarity }));
+
+    if (!this.myIdentityHex) return;
+    const entry = this.players.get(this.myIdentityHex);
+    if (!entry || !entry.sprite) return;
 
     const newKey = equippedHash(this.myRace, this.myEquippedPx);
     if (newKey !== entry.spriteKey) {
@@ -493,9 +509,11 @@ export class GameScene extends Phaser.Scene {
       if (currentHp === 0 && !this.isDead) {
         this.isDead = true;
         this.deadOverlay.setVisible(true);
+        this.mobileActions?.setDead(true);
       } else if (currentHp > 0 && this.isDead) {
         this.isDead = false;
         this.deadOverlay.setVisible(false);
+        this.mobileActions?.setDead(false);
       }
     }
 
@@ -714,6 +732,24 @@ export class GameScene extends Phaser.Scene {
 
   setBottomHud(hud: BottomHud) { this.bottomHud = hud; }
 
+  setMobileActions(actions: MobileActions) { this.mobileActions = actions; }
+
+  getIsCastingPortal(): boolean { return this.isCastingPortal; }
+
+  enterNearestPortal() {
+    if (!this.myIdentityHex) return;
+    const me = this.players.get(this.myIdentityHex);
+    if (!me) return;
+    for (const [id, entry] of this.worldPortals) {
+      const dx = me.body.x - entry.ring1.x;
+      const dy = me.body.y - entry.ring1.y;
+      if (Math.sqrt(dx * dx + dy * dy) < WORLD_PORTAL_RANGE) {
+        this.events.emit('enterPortal', BigInt(id));
+        return;
+      }
+    }
+  }
+
   private handleMovement(delta: number) {
     if (!this.myIdentityHex || this.isDead) return;
     const entry = this.players.get(this.myIdentityHex);
@@ -726,6 +762,13 @@ export class GameScene extends Phaser.Scene {
     if (this.cursors.right.isDown || this.wasd.right.isDown) dx += speed;
     if (this.cursors.up.isDown    || this.wasd.up.isDown)    dy -= speed;
     if (this.cursors.down.isDown  || this.wasd.down.isDown)  dy += speed;
+
+    // Virtual joystick (mobile)
+    if (dx === 0 && dy === 0 && this.joystick?.isActive()) {
+      const j = this.joystick.getDelta();
+      dx = j.dx * speed;
+      dy = j.dy * speed;
+    }
 
     if (dx !== 0 || dy !== 0) {
       const newX = Phaser.Math.Clamp(entry.body.x + dx, 0, WORLD_WIDTH);
@@ -855,6 +898,22 @@ export class GameScene extends Phaser.Scene {
 
   // ── Auto-attack visuals ────────────────────────────────────────────────────────
 
+  // Determine weapon category from itemType (new items) or icon emoji (legacy items).
+  private resolveWeaponCategory(): WeaponCategory {
+    if (this.equippedWeaponItemType) {
+      return getWeaponCategory(this.equippedWeaponItemType);
+    }
+    // Legacy items: map emoji → category so old gear also gets pixel attacks
+    switch (this.equippedWeaponIcon) {
+      case '🔮': return 'staff';
+      case '⚔️': return 'sword';
+      case '🪓': return 'axe';
+      case '🗡️': return 'dagger';
+      case '🏹': return 'bow';
+      default:   return 'unarmed';
+    }
+  }
+
   private tickAutoAttack(delta: number) {
     if (!this.gameIsActive || !this.myIdentityHex || this.isDead) return;
     const me = this.players.get(this.myIdentityHex);
@@ -879,16 +938,79 @@ export class GameScene extends Phaser.Scene {
 
     if (nearestDist > this.CLIENT_ATTACK_RANGE) return;
 
-    const icon = this.equippedWeaponIcon;
-    if (icon === '🔮') {
-      // Sceptre: traveling magic orb
-      this.fireMagicOrb(me.body.x, me.body.y, nearestX, nearestY, 0xaa44ee, 0xcc88ff);
-    } else if (icon === '⚔️') {
-      // War Axe: melee arc sweep
-      this.fireMeleeSwing(me.body.x, me.body.y, nearestX, nearestY, 0xff5500, 5, 0.7);
+    const cat = this.resolveWeaponCategory();
+    if (isRanged(cat)) {
+      this.firePixelRanged(me.body.x, me.body.y, nearestX, nearestY, cat);
     } else {
-      // Unarmed or hands-only gear
-      this.fireUnarmedPunch(me.body.x, me.body.y, nearestX, nearestY);
+      this.firePixelMelee(me.body.x, me.body.y, nearestX, nearestY, cat);
+    }
+  }
+
+  // ── Pixel-art attack visuals ───────────────────────────────────────────────────
+
+  // Ranged: pixel sprite travels from player to enemy, impact burst on arrival.
+  private firePixelRanged(fromX: number, fromY: number, toX: number, toY: number, cat: WeaponCategory) {
+    const angle = Math.atan2(toY - fromY, toX - fromX);
+    const proj  = this.add.image(fromX, fromY, projKey(cat))
+      .setRotation(angle)
+      .setDepth(22);
+
+    this.tweens.add({
+      targets: proj,
+      x: toX, y: toY,
+      duration: TRAVEL_MS[cat],
+      ease: 'Linear',
+      onComplete: () => {
+        this.firePixelImpact(toX, toY, cat);
+        proj.destroy();
+      },
+    });
+  }
+
+  // Melee: flash near the player facing the enemy, quick scale-out fade.
+  // Sword/axe sprites are vertical arcs — when rotated by attack angle they
+  // become perpendicular to the swing, which reads as a blade sweep.
+  private firePixelMelee(fromX: number, fromY: number, toX: number, toY: number, cat: WeaponCategory) {
+    const angle = Math.atan2(toY - fromY, toX - fromX);
+    const d     = Math.sqrt((toX - fromX) ** 2 + (toY - fromY) ** 2);
+    const reach = Math.min(d * 0.6, 28);
+    const flashX = fromX + Math.cos(angle) * reach;
+    const flashY = fromY + Math.sin(angle) * reach;
+
+    const flash = this.add.image(flashX, flashY, projKey(cat))
+      .setRotation(angle)
+      .setDepth(22)
+      .setAlpha(0.95);
+
+    this.tweens.add({
+      targets: flash,
+      scaleX: 1.5, scaleY: 1.5,
+      alpha: 0,
+      duration: TRAVEL_MS[cat],
+      ease: 'Power2Out',
+      onComplete: () => flash.destroy(),
+    });
+
+    this.firePixelImpact(flashX, flashY, cat);
+  }
+
+  // Tiny particle burst at impact point.
+  private firePixelImpact(x: number, y: number, cat: WeaponCategory) {
+    const cols  = IMPACT_COLORS[cat];
+    const count = 5;
+    for (let i = 0; i < count; i++) {
+      const a     = (Math.PI * 2 * i / count) + (Math.random() - 0.5) * 0.8;
+      const speed = 18 + Math.random() * 22;
+      const dot   = this.add.circle(x, y, 1.5 + Math.random() * 1.5, cols[i % cols.length], 1).setDepth(23);
+      this.tweens.add({
+        targets: dot,
+        x: x + Math.cos(a) * speed,
+        y: y + Math.sin(a) * speed,
+        alpha: 0, scaleX: 0, scaleY: 0,
+        duration: 180 + Math.random() * 80,
+        ease: 'Power2Out',
+        onComplete: () => dot.destroy(),
+      });
     }
   }
 

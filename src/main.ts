@@ -13,6 +13,7 @@ import { InGamePanel } from './ui/InGamePanel';
 import { TopBar } from './ui/TopBar';
 import { SettingsPanel } from './ui/SettingsPanel';
 import { BottomHud } from './ui/BottomHud';
+import { MobileActions } from './ui/MobileActions';
 import { CharacterSelect } from './ui/CharacterSelect';
 import { LoginScreen } from './ui/LoginScreen';
 
@@ -21,9 +22,13 @@ const DB_NAME         = import.meta.env.VITE_DB_NAME ?? 'my-spacetime-app-7dl29'
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
-  width: 1280,
-  height: 720,
   backgroundColor: '#000000',
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+    width: 1280,
+    height: 720,
+  },
   physics: {
     default: 'arcade',
     arcade: { debug: false },
@@ -77,6 +82,13 @@ const inGamePanel = new InGamePanel({
 
 const bottomHud = new BottomHud();
 
+const mobileActions = new MobileActions({
+  onPortal:    () => gameScene?.events.emit('mobileEnterPortal'),
+  onRecall:    () => gameScene?.events.emit('mobileTogglePortalCast'),
+  onCharPanel: () => gameScene?.events.emit('toggleCharPanel'),
+  onRespawn:   () => gameScene?.events.emit('respawnPlayer'),
+});
+
 const settingsPanel = new SettingsPanel({
   onRadarToggle:    (v) => gameScene?.setRadarVisible(v),
   onPixelArtToggle: (v) => gameScene?.setPixelArtMode(v),
@@ -93,7 +105,9 @@ const hubScreen = new HubScreen({
   onSpendSkillXp:    (skillId) => conn?.reducers.spendSkillXp({ skillId }),
   onEquipItem:       (id)      => conn?.reducers.equipItem({ itemId: id }),
   onUnequipItem:     (id)      => conn?.reducers.unequipItem({ itemId: id }),
+  onSalvageItem:     (id)      => conn?.reducers.salvageItem({ itemId: id }),
   onSpendToken:      ()        => conn?.reducers.spendToken({}),
+  onSpawnTestLoot:   ()        => conn?.reducers.spawnTestLoot({}),
   onEnterDungeon:    (level)   => conn?.reducers.enterDungeon({ level }),
   onSwitchCharacter: ()        => handleSwitchCharacter(),
   onLogout:          ()        => handleLogout(),
@@ -137,6 +151,7 @@ function updateScreen(scene: GameScene) {
     inGamePanel.hide();
     topBar.hide();
     bottomHud.hide();
+    mobileActions.hide();
     settingsPanel.hide();
     hubScreen.show(charToState(myChar), getMyItems(), highestFloorCleared);
     // Clear game-side dead overlay so it doesn't bleed through hub
@@ -148,12 +163,16 @@ function updateScreen(scene: GameScene) {
   hubScreen.hide();
   topBar.show();
   bottomHud.show();
+  mobileActions.show();
   scene.setBottomHud(bottomHud);
+  scene.setMobileActions(mobileActions);
   // Apply saved settings when first deploying
   scene.setRadarVisible(settingsPanel.getRadarOn());
   scene.setPixelArtMode(settingsPanel.getPixelArtOn());
   const equipped = getMyItems().filter(i => i.location === 'equipped');
   scene.updateGearHud(equipped);
+  // Pre-populate myEquippedPx so the sprite is baked with gear from the moment it spawns
+  scene.rebakeLocalPlayerSprite(equipped);
 }
 
 function charToState(char: any): CharacterState {
@@ -280,6 +299,11 @@ async function initiateConnection() {
               if (wp.worldId !== worldId) continue;
               scene.upsertWorldPortal(wp.id.toString(), wp.portalType);
             }
+            // Render ground items for this world (cleared by setMyWorldId on world change)
+            for (const it of conn!.db.item.iter()) {
+              if (it.location !== 'ground' || it.worldId !== worldId) continue;
+              scene.upsertGroundItem(it.id.toString(), it.groundX, it.groundY, it.icon, it.rarity, it.itemType ?? '', it.paletteGame ?? '', it.stat, it.val, it.bonusStat, it.bonusVal);
+            }
           })
           .subscribe([
             `SELECT * FROM player_position WHERE world_id = ${worldId}`,
@@ -314,12 +338,7 @@ async function initiateConnection() {
               );
             }
           }
-          // Render initial ground items
-          for (const it of conn!.db.item.iter()) {
-            if (it.location === 'ground') {
-              scene.upsertGroundItem(it.id.toString(), it.groundX, it.groundY, it.icon, it.rarity, it.itemType ?? '', it.paletteGame ?? '', it.stat, it.val, it.bonusStat, it.bonusVal);
-            }
-          }
+          // Ground items are rendered per-world in subscribeToWorld's onApplied
           // Seed activeCharId from the player row
           const myPlayerRow = [...conn!.db.player.iter()].find(p => p.identity.toHexString() === myIdentityHex);
           if (myPlayerRow) activeCharId = myPlayerRow.activeCharacterId;
@@ -435,7 +454,7 @@ async function initiateConnection() {
       // ── Item table ──────────────────────────────────────────────────────────
       conn.db.item.onInsert((_ctx: EventContext, row) => {
         const idStr = row.id.toString();
-        if (row.location === 'ground') {
+        if (row.location === 'ground' && myWorldId !== null && row.worldId === myWorldId) {
           scene.upsertGroundItem(idStr, row.groundX, row.groundY, row.icon, row.rarity, row.itemType ?? '', row.paletteGame ?? '', row.stat, row.val, row.bonusStat, row.bonusVal);
         }
         if (row.ownerId.toHexString() === myIdentityHex) {
@@ -449,8 +468,8 @@ async function initiateConnection() {
       });
       conn.db.item.onUpdate((_ctx: EventContext, old, row) => {
         const idStr = row.id.toString();
-        // Update ground item visibility
-        if (row.location === 'ground') {
+        // Update ground item visibility (only render items in the current world)
+        if (row.location === 'ground' && myWorldId !== null && row.worldId === myWorldId) {
           scene.upsertGroundItem(idStr, row.groundX, row.groundY, row.icon, row.rarity, row.itemType ?? '', row.paletteGame ?? '', row.stat, row.val, row.bonusStat, row.bonusVal);
         } else if (old.location === 'ground') {
           scene.removeGroundItem(idStr);
@@ -555,6 +574,14 @@ async function initiateConnection() {
       });
       scene.events.on('enterPortal', (portalId: bigint) => {
         conn?.reducers.enterPortal({ portalId });
+      });
+
+      // ── Mobile action button events ─────────────────────────────────────────
+      scene.events.on('mobileEnterPortal', () => {
+        scene.enterNearestPortal();
+      });
+      scene.events.on('mobileTogglePortalCast', () => {
+        scene.events.emit(scene.getIsCastingPortal() ? 'cancelPortalCast' : 'startPortalCast');
       });
     })
     .onConnectError((_ctx: ErrorContext, err: Error) => {

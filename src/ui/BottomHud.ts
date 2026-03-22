@@ -4,6 +4,7 @@
 // Right:  Minimap canvas (HTML canvas, drawn every frame).
 
 import type { ItemData } from './HubScreen';
+import { renderItemCardToCanvas } from '../game/gear/phaser-sprites';
 
 const MINIMAP_PX = 96;          // canvas side length (circle = 96px diameter)
 const MINIMAP_R  = MINIMAP_PX / 2;
@@ -142,15 +143,15 @@ export class BottomHud {
     this.updateArmor(armorTotal);
 
     for (const slot of GEAR_SLOTS) {
-      const el   = this.slotEls.get(slot);
+      const el = this.slotEls.get(slot);
       if (!el) continue;
       const item = equipped.find(e => e.slot === slot);
       if (item) {
         const col = RARITY_HEX[item.rarity] ?? '#555';
         el.style.borderColor = col;
         el.style.background  = `${col}22`;
-        el.title             = `${item.itemName}`;
-        el.innerHTML         = `<span style="font-size:20px">${item.icon}</span>`;
+        el.title             = item.itemName;
+        el.innerHTML         = itemPixelHTML(item);
       } else {
         el.style.borderColor = '#2a2033';
         el.style.background  = '#090710';
@@ -158,6 +159,7 @@ export class BottomHud {
         el.innerHTML         = `<span style="font-size:8px;color:#3a2520">${SLOT_LABEL[slot]}</span>`;
       }
     }
+    paintPixelSlots(this.el);
   }
 
   // ── Minimap ─────────────────────────────────────────────────────────────────
@@ -293,4 +295,28 @@ export class BottomHud {
 
   show() { this.el.style.display = 'flex'; }
   hide() { this.el.style.display = 'none'; }
+}
+
+// ── Pixel art slot helpers (mirrors InGamePanel pattern) ──────────────────────
+
+function paintPixelSlots(container: HTMLElement) {
+  container.querySelectorAll<HTMLCanvasElement>('.px-slot').forEach(cv => {
+    const card = renderItemCardToCanvas(
+      cv.dataset.it!, cv.dataset.pg!,
+      parseInt(cv.dataset.ra!), cv.dataset.st!,
+      parseFloat(cv.dataset.vl!), cv.dataset.bs || '',
+      parseFloat(cv.dataset.bv || '0'),
+    );
+    if (card) {
+      cv.width = card.width; cv.height = card.height;
+      cv.getContext('2d')!.drawImage(card, 0, 0);
+    }
+  });
+}
+
+function itemPixelHTML(g: ItemData): string {
+  if (g.itemType && g.paletteGame) {
+    return `<canvas class="px-slot" data-it="${g.itemType}" data-pg="${g.paletteGame}" data-ra="${g.rarity}" data-st="${g.stat}" data-vl="${g.val}" data-bs="${g.bonusStat}" data-bv="${g.bonusVal}" style="image-rendering:pixelated;width:32px;height:32px;display:block"></canvas>`;
+  }
+  return `<span style="font-size:20px">${g.icon}</span>`;
 }
