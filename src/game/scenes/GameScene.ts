@@ -15,6 +15,11 @@ import {
   bakeAllEnemyTextures, getEnemyFrameIndex, ENEMY_FRAME_SIZE,
 } from '../enemies/enemy-textures';
 import { BossRenderer } from '../enemies/boss-renderer';
+import {
+  playHit, playKill, playLevelUp, playLootDrop,
+  playWaveStart, playBossEnter, playBossDeath, playPlayerDeath,
+  playPortalStart, playPortalTravel, playWaveCleared,
+} from '../audio/SoundSystem';
 
 const WORLD_WIDTH  = 2400;
 const WORLD_HEIGHT = 2400;
@@ -63,6 +68,7 @@ const ENEMY_TYPE_DATA: Record<string, { color: number; letter: string; size: num
   banderling: { color: 0x6a7a4a, letter: 'B', size: 20, xp: 10 },
   larva:      { color: 0x4a8a3a, letter: 'l', size: 7,  xp: 1  },
   unicorn:    { color: 0xdd60a8, letter: 'U', size: 16, xp: 20 },
+  hydra:      { color: 0x2a5a2a, letter: 'H', size: 32, xp: 30 },
 };
 
 const BOSS_NAMES = [
@@ -155,6 +161,16 @@ export class GameScene extends Phaser.Scene {
   // Player stats (updated from server)
   private myLevel     = 1;
   private myUnspentXp = 0;
+  private myRunSkill  = 0; // 0=untrained, 1=trained, 2=specialized
+
+  // Boss HP bar (shown during boss encounters)
+  private bossBar: {
+    bg: Phaser.GameObjects.Rectangle;
+    fill: Phaser.GameObjects.Rectangle;
+    name: Phaser.GameObjects.Text;
+    label: Phaser.GameObjects.Text;
+  } | null = null;
+  private bossBarEnemyId: string | null = null;
 
   // Toast queue
   private toastY = 0;
@@ -183,7 +199,7 @@ export class GameScene extends Phaser.Scene {
   // Auto-attack visuals
   private attackTimer = 0;
   private readonly BASE_ATTACK_INTERVAL_MS = 500; // matches server CMB_INTERVAL_US
-  private readonly CLIENT_ATTACK_RANGE = 160;
+  private readonly CLIENT_ATTACK_RANGE = 85;      // slightly under server PLAYER_ATTACK_RANGE=90
   private equippedWeaponIcon     = '';
   private equippedWeaponItemType = '';
   private attackSpeedBonus       = 0; // sum of equipped 'as' stat bonuses
@@ -277,13 +293,31 @@ export class GameScene extends Phaser.Scene {
       stroke: '#000000', strokeThickness: 2,
     }).setOrigin(0, 0).setScrollFactor(0).setDepth(200);
 
-    // World debug — top left below kills
+    // World debug — hidden in production
     this.worldDebugText = this.add.text(12, 88, '', {
       fontSize: '9px', color: '#6666aa',
       stroke: '#000000', strokeThickness: 1,
-    }).setOrigin(0, 0).setScrollFactor(0).setDepth(200);
+    }).setOrigin(0, 0).setScrollFactor(0).setDepth(200).setVisible(false);
 
     this.toastY = 80;
+
+    // Boss HP bar — centered at top, hidden until a boss spawns
+    const W = this.scale.width;
+    const barW = Math.min(400, W - 80);
+    const barX = W / 2 - barW / 2;
+    const barY = 10;
+    const bg   = this.add.rectangle(barX, barY, barW, 14, 0x1a0a0a, 0.92)
+      .setOrigin(0, 0).setScrollFactor(0).setDepth(201).setVisible(false);
+    const fill = this.add.rectangle(barX, barY, barW, 14, 0xff6600)
+      .setOrigin(0, 0).setScrollFactor(0).setDepth(202).setVisible(false);
+    const bossName = this.add.text(W / 2, barY + 7, '', {
+      fontSize: '10px', fontStyle: 'bold', color: '#ffaa44',
+      stroke: '#000000', strokeThickness: 2,
+    }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(203).setVisible(false);
+    const bossLabel = this.add.text(barX + barW + 4, barY + 7, '', {
+      fontSize: '9px', color: '#888888', stroke: '#000000', strokeThickness: 1,
+    }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(203).setVisible(false);
+    this.bossBar = { bg, fill, name: bossName, label: bossLabel };
   }
 
   updateGearHud(equipped: Array<{ slot: string; rarity: number; icon: string; stat: string; val: number; bonusStat: string; bonusVal: number; itemType?: string; paletteGame?: string }>) {
@@ -336,6 +370,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   showLevelUp(level: number) {
+    playLevelUp();
     const W = this.scale.width;
     const H = this.scale.height;
     const txt = this.add.text(W / 2, H / 2 - 40, `LEVEL UP  ·  Lv ${level}`, {
@@ -384,6 +419,7 @@ export class GameScene extends Phaser.Scene {
     this.portalBar.bg.setVisible(true);
     this.portalBar.bar.setVisible(true);
     this.portalLabel.setText('[P] Cancel  ·  Casting Portal...').setVisible(true);
+    playPortalStart();
   }
 
   clearPortalCast() {
@@ -455,9 +491,10 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  setPlayerStats(level: number, unspentXp: bigint) {
+  setPlayerStats(level: number, unspentXp: bigint, runSkill = 0) {
     this.myLevel     = level;
     this.myUnspentXp = Number(unspentXp);
+    this.myRunSkill  = runSkill;
   }
 
   incrementKill() {
@@ -473,13 +510,15 @@ export class GameScene extends Phaser.Scene {
     if (!entry) {
       const body  = this.add.circle(x, y, 12, outerCol).setDepth(10);
       const inner = this.add.circle(x, y, 8,  innerCol).setDepth(11);
+      // Own username label is redundant — only show for other players
       const label = this.add.text(x, y - 20, username, {
         fontSize: '9px', color: '#ffffff', stroke: '#000', strokeThickness: 2,
-      }).setOrigin(0.5, 1).setDepth(12);
+      }).setOrigin(0.5, 1).setDepth(12).setVisible(!isMe);
 
-      const hpBg  = this.add.rectangle(x, y - 16, 28, 3, 0x300000).setDepth(13);
-      const hpBar = this.add.rectangle(x, y - 16, 28, 3, isMe ? 0xcc2200 : 0x882200)
-        .setOrigin(0.5).setDepth(14);
+      // HP bar above head — only useful for other players; local HP is in BottomHud orb
+      const hpBg  = this.add.rectangle(x, y - 16, 28, 3, 0x300000).setDepth(13).setVisible(!isMe);
+      const hpBar = this.add.rectangle(x, y - 16, 28, 3, 0x882200)
+        .setOrigin(0.5).setDepth(14).setVisible(!isMe);
 
       entry = {
         body, inner, label, hp: { bg: hpBg, bar: hpBar },
@@ -526,6 +565,7 @@ export class GameScene extends Phaser.Scene {
         this.isDead = true;
         this.deadOverlay.setVisible(true);
         this.mobileActions?.setDead(true);
+        playPlayerDeath();
       } else if (currentHp > 0 && this.isDead) {
         this.isDead = false;
         this.deadOverlay.setVisible(false);
@@ -534,7 +574,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     const entry = this.players.get(hex);
-    if (!entry) return;
+    if (!entry || isMe) return;
     const pct = maxHp > 0 ? currentHp / maxHp : 0;
     entry.hp.bar.setSize(28 * pct, 3);
   }
@@ -560,12 +600,28 @@ export class GameScene extends Phaser.Scene {
       let bossAura: Phaser.GameObjects.Arc | undefined;
       let bossNameTag: Phaser.GameObjects.Text | undefined;
       if (isBoss) {
-        bossAura = this.add.circle(x, y, data.size + 8, 0xffaa00, 0.25).setDepth(9);
+        bossAura = this.add.circle(x, y, data.size + 8, 0xffaa00, 0.15).setDepth(9);
+        this.tweens.add({ targets: bossAura, alpha: 0.45, duration: 1100, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
         const floorName = bossLevel >= 1 && bossLevel <= 10 ? BOSS_NAMES[bossLevel - 1] ?? '' : '';
         bossNameTag = this.add.text(x, y - data.size - 18, floorName, {
           fontSize: '10px', fontStyle: 'bold', color: '#ffaa00',
           stroke: '#000000', strokeThickness: 2,
         }).setOrigin(0.5).setDepth(14);
+
+        // Boss fanfare: camera shake + banner + sound
+        this.cameras.main.shake(600, 0.012);
+        if (floorName) this.showWaveBanner(`⚔ ${floorName}`, bossLevel, bossLevel);
+        playBossEnter();
+
+        // Show boss HP bar
+        if (this.bossBar) {
+          const barW = this.bossBar.bg.width;
+          this.bossBar.bg.setVisible(true);
+          this.bossBar.fill.setVisible(true).setDisplaySize(barW, 14);
+          this.bossBar.name.setText(floorName).setVisible(true);
+          this.bossBar.label.setText('').setVisible(true);
+          this.bossBarEnemyId = idStr;
+        }
       }
 
       // Circles are fallback only — hidden when pixel art sprite is available
@@ -576,8 +632,12 @@ export class GameScene extends Phaser.Scene {
         color: '#dddddd', stroke: '#000000', strokeThickness: 2,
       }).setOrigin(0.5).setDepth(11).setVisible(!hasPxSprite);
 
-      const hpBg  = this.add.rectangle(x, y - data.size - 6, data.size * 2 + 4, isBoss ? 6 : 3, 0x300000).setDepth(12);
-      const hpBar = this.add.rectangle(x, y - data.size - 6, data.size * 2 + 4, isBoss ? 6 : 3, isBoss ? 0xff6600 : 0xcc0000)
+      // HP bar Y: use sprite half-height for pixel art enemies, circle radius for fallback
+      const hpOffY = this.textures.exists(`enemy_${enemyType}`) || (isBoss && enemyType === 'hydra')
+        ? (isBoss ? 36 : ENEMY_FRAME_SIZE / 2 + 4)
+        : data.size + 6;
+      const hpBg  = this.add.rectangle(x, y - hpOffY, data.size * 2 + 4, isBoss ? 6 : 3, 0x300000).setDepth(12);
+      const hpBar = this.add.rectangle(x, y - hpOffY, data.size * 2 + 4, isBoss ? 6 : 3, isBoss ? 0xff6600 : 0xcc0000)
         .setOrigin(0.5).setDepth(13);
 
       // Pixel art sprite — hydra boss uses a dynamic canvas renderer
@@ -629,6 +689,7 @@ export class GameScene extends Phaser.Scene {
       const prevHp = this.enemyPrevHp.get(idStr);
       if (prevHp !== undefined && currentHp < prevHp) {
         this.showHitEffect(x, y - data.size, prevHp - currentHp);
+        playHit();
         if (entry.bossRenderer) entry.bossRenderer.playHurt();
         else this.flashEnemy(entry, data.color);
       }
@@ -637,6 +698,13 @@ export class GameScene extends Phaser.Scene {
 
     const pct = maxHp > 0 ? currentHp / maxHp : 0;
     entry.hp.bar.setSize((data.size * 2 + 4) * pct, isBoss ? 6 : 3);
+
+    // Update dedicated boss HP bar
+    if (isBoss && this.bossBar && this.bossBarEnemyId === idStr) {
+      const barW = this.bossBar.bg.width;
+      this.bossBar.fill.setDisplaySize(Math.max(0, barW * pct), 14);
+      this.bossBar.label.setText(`${currentHp} / ${maxHp}`);
+    }
   }
 
   removeEnemySprite(idStr: string) {
@@ -646,6 +714,19 @@ export class GameScene extends Phaser.Scene {
     const data = ENEMY_TYPE_DATA[entry.type] ?? { color: 0xc62828, size: 14, xp: 0 };
     this.showDeathBurst(entry.body.x, entry.body.y, data.color, data.size);
     if (data.xp > 0) this.showXpGain(entry.body.x, entry.body.y, data.xp);
+    if (entry.isBoss) {
+      playBossDeath();
+      // Hide dedicated boss HP bar
+      if (this.bossBar && this.bossBarEnemyId === idStr) {
+        this.bossBar.bg.setVisible(false);
+        this.bossBar.fill.setVisible(false);
+        this.bossBar.name.setVisible(false);
+        this.bossBar.label.setVisible(false);
+        this.bossBarEnemyId = null;
+      }
+    } else {
+      playKill();
+    }
     entry.body.destroy(); entry.label.destroy();
     entry.hp.bg.destroy(); entry.hp.bar.destroy();
     entry.sprite?.destroy();
@@ -740,9 +821,11 @@ export class GameScene extends Phaser.Scene {
 
     if (waveChanged && waveName) {
       this.showWaveBanner(waveName, waveNumber, 10);
+      playWaveStart();
     }
     if (justCleared) {
       this.showClearedBanner(waveNumber);
+      playWaveCleared();
     }
   }
 
@@ -842,7 +925,9 @@ export class GameScene extends Phaser.Scene {
     const entry = this.players.get(this.myIdentityHex);
     if (!entry) return;
 
-    const speed = MOVE_SPEED * (delta / 1000);
+    // Run skill: trained +20%, specialized +40%
+    const runMult = this.myRunSkill === 2 ? 1.40 : this.myRunSkill === 1 ? 1.20 : 1.0;
+    const speed = MOVE_SPEED * runMult * (delta / 1000);
     let dx = 0, dy = 0;
 
     if (this.cursors.left.isDown  || this.wasd.left.isDown)  dx -= speed;
@@ -1234,6 +1319,7 @@ export class GameScene extends Phaser.Scene {
 
   // Stacking loot notification toasts (top-right, slide in, expire)
   showLootToast(icon: string, message: string, rarity: number) {
+    playLootDrop();
     const W     = this.scale.width;
     const col   = RARITY_HEX_CSS[rarity] ?? '#888888';
     const SLOT_H = 26;

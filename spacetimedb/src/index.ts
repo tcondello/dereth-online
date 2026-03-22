@@ -220,7 +220,7 @@ const BOSS_DEFS: BossDef[] = [
   { name: 'Grunter the Brute',  baseType: 'banderling', hpMult: 4,  spMult: 0.8, xpMult: 5, dropTier: 2, mechanic: 'warcry',  damageBonus: 8  },
   { name: 'Hydra',              baseType: 'hydra',      hpMult: 5,  spMult: 0.4, xpMult: 8, dropTier: 2, mechanic: 'hydra',   damageBonus: 10 },
   { name: 'Martine the Mad',    baseType: 'virindi',    hpMult: 6,  spMult: 1.0, xpMult: 5, dropTier: 3, mechanic: 'phase',   damageBonus: 10 },
-  { name: 'Torgluuk',           baseType: 'tusker',     hpMult: 7,  spMult: 0.5, xpMult: 5, dropTier: 3, mechanic: 'pound',   damageBonus: 15 },
+  { name: 'Torgluuk',           baseType: 'tusker',     hpMult: 7,  spMult: 0.5, xpMult: 5, dropTier: 3, mechanic: 'charge',  damageBonus: 15 },
   { name: 'The Hollow One',     baseType: 'virindi',    hpMult: 7,  spMult: 1.0, xpMult: 5, dropTier: 4, mechanic: 'mirror',  damageBonus: 12 },
   { name: 'Pandemonium',        baseType: 'shadow',     hpMult: 8,  spMult: 0.8, xpMult: 5, dropTier: 4, mechanic: 'frenzy',  damageBonus: 10 },
   { name: 'Olthoi Eviscerator', baseType: 'olthoi',     hpMult: 9,  spMult: 0.7, xpMult: 5, dropTier: 5, mechanic: 'charge',  damageBonus: 20 },
@@ -523,12 +523,33 @@ function getCharMaxHp(char: any): number {
   return Math.floor((char.attrEnd + char.raisedEnd) / 2) + 10;
 }
 
+// Map weapon itemType → the character skill that governs it
+function getWeaponSkillLevel(char: any, weaponItemType: string): number {
+  switch (weaponItemType) {
+    case 'Sword': case 'Axe': case 'Spear': return char.skillHeavy;
+    case 'Dagger':                           return char.skillLight;
+    case 'Bow':                              return char.skillMissile;
+    case 'Staff':                            return char.skillWarMagic;
+    default:                                 return char.skillLight; // unarmed / gauntlets
+  }
+}
+
 function getPlayerDamage(ctx: any, identity: any): number {
   const player = ctx.db.player.identity.find(identity);
   const char = (player && player.activeCharacterId > 0n) ? ctx.db.character.id.find(player.activeCharacterId) : undefined;
   if (!char) return PLAYER_BASE_DAMAGE;
   const bonusDmg = getGearBonus(ctx, identity, 'dm');
-  return Math.floor(PLAYER_BASE_DAMAGE * (1 + bonusDmg));
+
+  // Find the equipped weapon's itemType for skill-based damage scaling
+  let weaponItemType = '';
+  for (const it of ctx.db.item.item_owner_id.filter(identity)) {
+    if (it.location === 'equipped' && it.slot === 'weapon') { weaponItemType = it.itemType ?? ''; break; }
+  }
+  const skillLevel = getWeaponSkillLevel(char, weaponItemType);
+  // Trained: +20% damage, Specialized: +40% damage
+  const skillMult = skillLevel === SKILL_SPECIALIZED ? 1.40 : skillLevel === SKILL_TRAINED ? 1.20 : 1.0;
+
+  return Math.floor(PLAYER_BASE_DAMAGE * (1 + bonusDmg) * skillMult);
 }
 
 function getGearBonus(ctx: any, identity: any, statKey: string): number {

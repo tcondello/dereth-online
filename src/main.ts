@@ -7,6 +7,7 @@ import {
   loadStoredToken, saveStoredToken,
 } from './lib/auth';
 import { GameScene } from './game/scenes/GameScene';
+import { playPortalTravel } from './game/audio/SoundSystem';
 import { CharacterCreate, CharacterData } from './ui/CharacterCreate';
 import { HubScreen, CharacterState, ItemData } from './ui/HubScreen';
 import { InGamePanel } from './ui/InGamePanel';
@@ -452,7 +453,7 @@ async function initiateConnection() {
         // A new character was created for this account — updateScreen will be triggered
         // by the subsequent player.onUpdate (auto-select) or immediately if already active
         if (row.id === activeCharId) {
-          scene.setPlayerStats(row.level, row.unspentXp);
+          scene.setPlayerStats(row.level, row.unspentXp, row.skillRun);
           if (row.currentWorldId > 0n) subscribeToWorld(row.currentWorldId);
           updateScreen(scene);
         } else {
@@ -463,9 +464,10 @@ async function initiateConnection() {
       conn.db.character.onUpdate((_ctx: EventContext, old, row) => {
         if (row.id !== activeCharId) return;
         if (row.level > old.level) scene.showLevelUp(row.level);
-        scene.setPlayerStats(row.level, row.unspentXp);
+        scene.setPlayerStats(row.level, row.unspentXp, row.skillRun);
         if (row.currentWorldId > 0n && row.currentWorldId !== old.currentWorldId) {
           subscribeToWorld(row.currentWorldId);
+          playPortalTravel();
         }
         updateScreen(scene);
         if (row.deployed) {
