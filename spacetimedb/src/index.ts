@@ -129,11 +129,10 @@ const GEAR_TIER_NAMES = ['Scuffed', 'Serviceable', 'Quality', 'Superior', 'Exqui
 const GEAR_TIER_MULT  = [1.0, 1.3, 1.7, 2.2, 2.8, 3.6];
 
 function waveTier(waveNum: number): number {
-  if (waveNum <= 2) return 0;
-  if (waveNum <= 4) return 1;
-  if (waveNum <= 6) return 2;
-  if (waveNum <= 8) return 3;
-  if (waveNum <= 9) return 4;
+  if (waveNum <= 1) return 1;
+  if (waveNum <= 2) return 2;
+  if (waveNum <= 3) return 3;
+  if (waveNum <= 4) return 4;
   return 5;
 }
 
@@ -143,44 +142,46 @@ const ITEM_GROUND_LIFETIME_US = 30_000_000n;
 const BACKPACK_MAX = 6;
 const VAULT_MAX    = 12;
 
-interface GearTemplate { name: string; icon: string; stat: string; base: number; }
+interface GearTemplate { name: string; icon: string; stat: string; base: number; itemType: string; }
 
 const GEAR_TEMPLATES: Record<string, GearTemplate[]> = {
   weapon:  [
-    { name: 'War Sword',  icon: '⚔️',  stat: 'dm', base: 1.5  },
-    { name: 'War Axe',    icon: '🪓',  stat: 'dm', base: 1.7  },
-    { name: 'Katar',      icon: '🗡️',  stat: 'dm', base: 1.3  },
-    { name: 'Sceptre',    icon: '🔮',  stat: 'dm', base: 1.8  },
+    { name: 'War Sword',  icon: '⚔️',  stat: 'dm', base: 1.5,  itemType: 'Sword'  },
+    { name: 'War Axe',    icon: '🪓',  stat: 'dm', base: 1.7,  itemType: 'Axe'    },
+    { name: 'Katar',      icon: '🗡️',  stat: 'dm', base: 1.3,  itemType: 'Dagger' },
+    { name: 'Sceptre',    icon: '🔮',  stat: 'dm', base: 1.8,  itemType: 'Staff'  },
+    { name: 'Longbow',    icon: '🏹',  stat: 'dm', base: 1.4,  itemType: 'Bow'    },
+    { name: 'War Spear',  icon: '⚔️',  stat: 'dm', base: 1.6,  itemType: 'Spear'  },
   ],
   head: [
-    { name: 'Armet',      icon: '⛑️',  stat: 'hp', base: 4.0  },
-    { name: 'Circlet',    icon: '👑',  stat: 'xp', base: 0.04 },
-    { name: 'Coif',       icon: '🪖',  stat: 'ar', base: 0.03 },
-    { name: 'Bascinet',   icon: '🎭',  stat: 'sp', base: 0.04 },
+    { name: 'Armet',      icon: '⛑️',  stat: 'hp', base: 4.0,  itemType: 'Helmet' },
+    { name: 'Circlet',    icon: '👑',  stat: 'xp', base: 0.04, itemType: 'Helmet' },
+    { name: 'Coif',       icon: '🪖',  stat: 'ar', base: 0.03, itemType: 'Helmet' },
+    { name: 'Bascinet',   icon: '🎭',  stat: 'sp', base: 0.04, itemType: 'Helmet' },
   ],
   chest: [
-    { name: 'Hauberk',    icon: '🛡️',  stat: 'ar', base: 0.03 },
-    { name: 'Cuirass',    icon: '🦺',  stat: 'hp', base: 6.0  },
-    { name: 'Corselet',   icon: '🧥',  stat: 'ar', base: 0.04 },
-    { name: 'Doublet',    icon: '🎽',  stat: 'sp', base: 0.03 },
+    { name: 'Hauberk',    icon: '🛡️',  stat: 'ar', base: 0.03, itemType: 'Chestplate' },
+    { name: 'Cuirass',    icon: '🦺',  stat: 'hp', base: 6.0,  itemType: 'Chestplate' },
+    { name: 'Corselet',   icon: '🧥',  stat: 'ar', base: 0.04, itemType: 'Chestplate' },
+    { name: 'Doublet',    icon: '🎽',  stat: 'sp', base: 0.03, itemType: 'Chestplate' },
   ],
   hands: [
-    { name: 'Gauntlets',  icon: '🧤',  stat: 'dm', base: 1.0  },
-    { name: 'Bracers',    icon: '⚙️',  stat: 'as', base: 0.025},
-    { name: 'Cestus',     icon: '✊',  stat: 'dm', base: 0.8  },
-    { name: 'Wrappings',  icon: '🫳',  stat: 'xp', base: 0.03 },
+    { name: 'Gauntlets',  icon: '🧤',  stat: 'dm', base: 1.0,  itemType: 'Gauntlets' },
+    { name: 'Bracers',    icon: '⚙️',  stat: 'as', base: 0.025, itemType: 'Gauntlets' },
+    { name: 'Cestus',     icon: '✊',  stat: 'dm', base: 0.8,  itemType: 'Gauntlets' },
+    { name: 'Wrappings',  icon: '🫳',  stat: 'xp', base: 0.03, itemType: 'Gauntlets' },
   ],
   feet: [
-    { name: 'Sollerets',  icon: '👢',  stat: 'sp', base: 0.05 },
-    { name: 'Greaves',    icon: '🦿',  stat: 'ar', base: 0.025},
-    { name: 'Sandals',    icon: '🥾',  stat: 'sp', base: 0.07 },
-    { name: 'Chausses',   icon: '🩱',  stat: 'hp', base: 3.0  },
+    { name: 'Sollerets',  icon: '👢',  stat: 'sp', base: 0.05, itemType: 'Boots'    },
+    { name: 'Greaves',    icon: '🦿',  stat: 'ar', base: 0.025, itemType: 'Leggings' },
+    { name: 'Sandals',    icon: '🥾',  stat: 'sp', base: 0.07, itemType: 'Boots'    },
+    { name: 'Chausses',   icon: '🩱',  stat: 'hp', base: 3.0,  itemType: 'Leggings' },
   ],
   trinket: [
-    { name: 'Sigil',      icon: '📿',  stat: 'dm', base: 1.5  },
-    { name: 'Scarab',     icon: '🪲',  stat: 'as', base: 0.03 },
-    { name: 'Amulet',     icon: '🧿',  stat: 'hp', base: 5.0  },
-    { name: 'Talisman',   icon: '🔯',  stat: 'xp', base: 0.05 },
+    { name: 'Sigil',      icon: '📿',  stat: 'dm', base: 1.5,  itemType: 'Shield' },
+    { name: 'Scarab',     icon: '🪲',  stat: 'as', base: 0.03, itemType: 'Shield' },
+    { name: 'Amulet',     icon: '🧿',  stat: 'hp', base: 5.0,  itemType: 'Shield' },
+    { name: 'Talisman',   icon: '🔯',  stat: 'xp', base: 0.05, itemType: 'Shield' },
   ],
 };
 
@@ -431,8 +432,11 @@ function dist(ax: number, ay: number, bx: number, by: number): number {
 }
 
 function prand(seed: bigint, salt: number): number {
-  const x = Number((seed ^ (seed >> 17n) ^ BigInt(salt * 2654435761)) & 0xffffffffn);
-  return (x >>> 0) / 0x100000000;
+  // splitmix64-style hash — full 64-bit avalanche, no correlation between nearby seeds
+  let h = (seed + BigInt(salt) * 0x9E3779B97F4A7C15n) & 0xFFFFFFFFFFFFFFFFn;
+  h = ((h ^ (h >> 30n)) * 0xBF58476D1CE4E5B9n) & 0xFFFFFFFFFFFFFFFFn;
+  h = ((h ^ (h >> 27n)) * 0x94D049BB133111EBn) & 0xFFFFFFFFFFFFFFFFn;
+  return Number((h ^ (h >> 31n)) & 0xFFFFFFFFn) / 0x100000000;
 }
 function prandBool(seed: bigint, salt: number, chance: number): boolean {
   return prand(seed, salt) < chance;
@@ -443,16 +447,6 @@ function prandInt(seed: bigint, salt: number, max: number): number {
 
 // ── Pixel art metadata helpers ───────────────────────────────────────────────────
 
-// Forge item types per game slot (mirrors client SLOT_ITEM_TYPES)
-const SLOT_TO_ITEM_TYPES: Record<string, string[]> = {
-  weapon:  ['Sword', 'Axe', 'Spear', 'Dagger', 'Staff', 'Bow'],
-  head:    ['Helmet'],
-  chest:   ['Chestplate'],
-  hands:   ['Gauntlets'],
-  feet:    ['Boots', 'Leggings'],
-  trinket: ['Shield'],
-};
-
 // Palette game names by forge tier (game rarity 0–5 → min(rarity,4))
 const PIXEL_PALETTE_GAMES: string[][] = [
   ['My Own Summer', 'Lava-GB'],
@@ -461,11 +455,6 @@ const PIXEL_PALETTE_GAMES: string[][] = [
   ['Japanese Woodblock', 'NOPAL-12'],
   ['Retro 8-Bit', 'Deep Sea', 'Vinik24', 'Fantasy 24'],
 ];
-
-function pickServerItemType(slot: string, seed: bigint): string {
-  const types = SLOT_TO_ITEM_TYPES[slot] ?? ['Sword'];
-  return types[prandInt(seed, 5, types.length)];
-}
 
 function pickServerPaletteGame(rarity: number, seed: bigint): string {
   const tier  = Math.min(rarity, 4);
@@ -615,19 +604,19 @@ function rollItem(seed: bigint, ownerId: any, waveNum: number, x: number, y: num
     rarity: ti, stat: tmpl.stat, val, bonusStat, bonusVal,
     location: 'ground', groundX: x, groundY: y,
     worldId, expiresAtMicros: now + ITEM_GROUND_LIFETIME_US,
-    itemType: pickServerItemType(slot, seed), paletteGame: pickServerPaletteGame(ti, seed),
+    itemType: tmpl.itemType, paletteGame: pickServerPaletteGame(ti, seed),
   };
 }
 
 // Boss guaranteed armor drop — always picks head/chest/hands/feet slot
 const ARMOR_SLOTS = ['head', 'chest', 'hands', 'feet'];
 
-function rollArmorItem(seed: bigint, ownerId: any, waveNum: number, x: number, y: number, now: bigint, worldId: bigint): any {
+function rollArmorItem(seed: bigint, ownerId: any, dropTier: number, x: number, y: number, now: bigint, worldId: bigint): any {
   const slotIdx = prandInt(seed, 0, ARMOR_SLOTS.length);
   const slot    = ARMOR_SLOTS[slotIdx];
   const tmpls   = GEAR_TEMPLATES[slot];
   const tmpl    = tmpls[prandInt(seed, 1, tmpls.length)];
-  const ti      = Math.min(waveTier(waveNum) + (prandBool(seed, 2, 0.3) ? 1 : 0), 5);
+  const ti      = Math.min(dropTier + (prandBool(seed, 2, 0.3) ? 1 : 0), 5);
   const mult    = GEAR_TIER_MULT[ti];
   const val     = parseFloat((tmpl.base * mult).toFixed(3));
 
@@ -644,7 +633,7 @@ function rollArmorItem(seed: bigint, ownerId: any, waveNum: number, x: number, y
     rarity: ti, stat: tmpl.stat, val, bonusStat, bonusVal,
     location: 'ground', groundX: x, groundY: y,
     worldId, expiresAtMicros: now + ITEM_GROUND_LIFETIME_US,
-    itemType: pickServerItemType(slot, seed), paletteGame: pickServerPaletteGame(ti, seed),
+    itemType: tmpl.itemType, paletteGame: pickServerPaletteGame(ti, seed),
   };
 }
 
@@ -1079,6 +1068,65 @@ export const deploy_player = spacetimedb.reducer(ctx => {
   doDeployPlayer(ctx, char);
 });
 
+// ── Dev / test helper ─────────────────────────────────────────────────────────
+// Drops one of every weapon type + full armor suite on the ground in the
+// caller's home world, near spawn.  Items never expire so they persist until
+// picked up.  Safe to call multiple times (just adds more copies).
+export const spawn_test_loot = spacetimedb.reducer(ctx => {
+  const char = getActiveChar(ctx);
+  if (!char) throw new SenderError('No active character');
+
+  const worldId = char.homeWorldId > 0n ? char.homeWorldId
+    : findOrCreateHomeWorld(ctx, ctx.sender).id;
+
+  const rarity = 3;  // Superior
+  const mult   = GEAR_TIER_MULT[rarity];
+  const pal    = 'Japanese Woodblock';  // tier-3 palette
+
+  // Weapons — one per Forge itemType, row 150 units above spawn
+  const WEAPONS: { itemType: string; icon: string; base: number }[] = [
+    { itemType: 'Sword',  icon: '⚔️',  base: 1.5 },
+    { itemType: 'Axe',   icon: '🪓',  base: 1.7 },
+    { itemType: 'Spear', icon: '⚔️',  base: 1.6 },
+    { itemType: 'Dagger',icon: '🗡️', base: 1.3 },
+    { itemType: 'Staff', icon: '🔮',  base: 1.8 },
+    { itemType: 'Bow',   icon: '🏹',  base: 1.4 },
+  ];
+  WEAPONS.forEach(({ itemType, icon, base }, i) => {
+    ctx.db.item.insert({
+      id: 0n, ownerId: ctx.sender,
+      slot: 'weapon', itemName: `Superior ${itemType}`, icon,
+      rarity, stat: 'dm', val: parseFloat((base * mult).toFixed(3)),
+      bonusStat: '', bonusVal: 0,
+      location: 'ground',
+      groundX: 1050 + i * 60, groundY: PLAYER_SPAWN_Y - 150,
+      worldId, expiresAtMicros: 0n,
+      itemType, paletteGame: pal,
+    });
+  });
+
+  // Armor — head / chest / hands / feet / trinket, row 130 units below spawn
+  const ARMOR: { slot: string; itemType: string; icon: string; stat: string; base: number }[] = [
+    { slot: 'head',    itemType: 'Helmet',     icon: '⛑️',  stat: 'ar',  base: 0.03  },
+    { slot: 'chest',   itemType: 'Chestplate', icon: '🛡️',  stat: 'ar',  base: 0.04  },
+    { slot: 'hands',   itemType: 'Gauntlets',  icon: '🧤',  stat: 'as',  base: 0.025 },
+    { slot: 'feet',    itemType: 'Boots',      icon: '👢',  stat: 'sp',  base: 0.07  },
+    { slot: 'trinket', itemType: 'Shield',     icon: '📿',  stat: 'dm',  base: 1.5   },
+  ];
+  ARMOR.forEach(({ slot, itemType, icon, stat, base }, i) => {
+    ctx.db.item.insert({
+      id: 0n, ownerId: ctx.sender,
+      slot, itemName: `Superior ${itemType}`, icon,
+      rarity, stat, val: parseFloat((base * mult).toFixed(3)),
+      bonusStat: '', bonusVal: 0,
+      location: 'ground',
+      groundX: 1080 + i * 60, groundY: PLAYER_SPAWN_Y + 130,
+      worldId, expiresAtMicros: 0n,
+      itemType, paletteGame: pal,
+    });
+  });
+});
+
 export const move_player = spacetimedb.reducer(
   { x: t.f32(), y: t.f32() },
   (ctx, { x, y }) => {
@@ -1196,19 +1244,26 @@ export const spend_token = spacetimedb.reducer(ctx => {
   if ([...ctx.db.item.item_owner_id.filter(ctx.sender)].filter(i => i.location === 'vault').length >= VAULT_MAX)
     throw new SenderError('Vault is full');
   const now  = ctx.timestamp.microsSinceUnixEpoch;
-  const seed = now ^ BigInt(char.tokens * 999983);
+  const seed = now ^ (char.id * 6364136223846793005n) ^ BigInt(char.tokens);
   const slotIdx = prandInt(seed, 0, GEAR_SLOTS.length);
   const slot    = GEAR_SLOTS[slotIdx];
   const tmpls   = GEAR_TEMPLATES[slot];
   const tmpl    = tmpls[prandInt(seed, 1, tmpls.length)];
-  const ti      = prandInt(seed, 2, 3);
+  const ti      = prandInt(seed, 2, 4); // tiers 0–3 (Scuffed → Superior)
   const val     = parseFloat((tmpl.base * GEAR_TIER_MULT[ti]).toFixed(3));
+  let bonusStat = '', bonusVal = 0;
+  if (ti >= 1 && prandBool(seed, 3, 0.15 + ti * 0.1)) {
+    const opts = BONUS_STATS.filter(s => s !== tmpl.stat);
+    const bk   = opts[prandInt(seed, 4, opts.length)];
+    const bBases: Record<string, number> = { hp: 2 + ti * 2, sp: 0.01 + ti * 0.01, ar: 0.005 + ti * 0.005, as: 0.005 + ti * 0.005, xp: 0.01 + ti * 0.01 };
+    bonusStat = bk; bonusVal = bBases[bk] ?? 0;
+  }
   ctx.db.item.insert({
     id: 0n, ownerId: ctx.sender,
     slot, itemName: `${GEAR_TIER_NAMES[ti]} ${tmpl.name}`, icon: tmpl.icon,
-    rarity: ti, stat: tmpl.stat, val, bonusStat: '', bonusVal: 0,
+    rarity: ti, stat: tmpl.stat, val, bonusStat, bonusVal,
     location: 'vault', groundX: 0, groundY: 0, worldId: 0n, expiresAtMicros: 0n,
-    itemType: pickServerItemType(slot, seed), paletteGame: pickServerPaletteGame(ti, seed),
+    itemType: tmpl.itemType, paletteGame: pickServerPaletteGame(ti, seed),
   });
   ctx.db.character.id.update({ ...char, tokens: char.tokens - 1 });
 });
@@ -1244,6 +1299,35 @@ export const move_to_vault = spacetimedb.reducer(
     const vaultCount = [...ctx.db.item.item_owner_id.filter(ctx.sender)].filter(i => i.location === 'vault').length;
     if (vaultCount >= VAULT_MAX) throw new SenderError('Vault full');
     ctx.db.item.id.update({ ...it, location: 'vault' });
+  }
+);
+
+// XP awarded when salvaging gear (by rarity tier 0–5)
+const SALVAGE_XP = [50, 150, 400, 900, 2000, 5000];
+
+export const salvage_item = spacetimedb.reducer(
+  { itemId: t.u64() },
+  (ctx, { itemId }) => {
+    const it = ctx.db.item.id.find(itemId);
+    if (!it || it.ownerId.toHexString() !== ctx.sender.toHexString()) throw new SenderError('Item not found');
+    if (it.location === 'equipped') throw new SenderError('Unequip the item before salvaging');
+    const char = getActiveChar(ctx);
+    if (!char) throw new SenderError('No character');
+    const baseXp  = SALVAGE_XP[Math.min(it.rarity, 5)] ?? 50;
+    const bonus   = getGearBonus(ctx, ctx.sender, 'xp');
+    const earned  = BigInt(Math.round(baseXp * (1 + bonus)));
+    const newTotal   = char.totalXp + earned;
+    const newUnspent = char.unspentXp + earned;
+    const newLevel   = xpToLevel(newTotal);
+    const newCr      = checkMilestones(newTotal, char.earnedCredits);
+    ctx.db.item.id.delete(itemId);
+    ctx.db.character.id.update({
+      ...char,
+      totalXp: newTotal, unspentXp: newUnspent,
+      level: newLevel,
+      earnedCredits: char.earnedCredits + newCr,
+      tokens: char.tokens + newCr,
+    });
   }
 );
 
@@ -1677,7 +1761,7 @@ export const run_combat_tick = spacetimedb.reducer(
           const bossXp   = Math.round(stats.xp * bd.xpMult);
           awardXpAll(ctx, bossXp, enemy.worldId);
           // Boss always drops an armor piece at its tier
-          ctx.db.item.insert(rollArmorItem(seed, ctx.sender, bd.dropTier * 2, enemy.x, enemy.y, now, enemy.worldId));
+          ctx.db.item.insert(rollArmorItem(seed, ctx.sender, bd.dropTier, enemy.x, enemy.y, now, enemy.worldId));
           // Bael'Zharon bonus T6 armor drop (30%)
           if (bd.mechanic === 'nova' && prandBool(seed, 99, 0.3)) {
             ctx.db.item.insert(rollArmorItem(seed + 1n, ctx.sender, 11, enemy.x + 30, enemy.y + 30, now, enemy.worldId));

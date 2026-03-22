@@ -27,6 +27,9 @@ function itemPixelHTML(g: { icon: string; itemType?: string; paletteGame?: strin
   return g.icon;
 }
 
+// XP awarded by rarity tier — mirrors server SALVAGE_XP
+const CLIENT_SALVAGE_XP = [50, 150, 400, 900, 2000, 5000];
+
 const GEAR_SLOT_ICONS: Record<string, string> = {
   weapon: '⚔️', head: '⛑️', chest: '🛡️', hands: '🧤', feet: '👢', trinket: '📿',
 };
@@ -112,7 +115,9 @@ export class HubScreen {
     onSpendSkillXp: (skillId: string) => void;
     onEquipItem: (id: bigint) => void;
     onUnequipItem: (id: bigint) => void;
+    onSalvageItem: (id: bigint) => void;
     onSpendToken: () => void;
+    onSpawnTestLoot: () => void;
     onEnterDungeon: (level: number) => void;
     onSwitchCharacter: () => void;
     onLogout: () => void;
@@ -121,6 +126,7 @@ export class HubScreen {
   private char: CharacterState | null = null;
   private items: ItemData[] = [];
   private highestFloorCleared = 0;
+  private salvageStaged = new Set<string>(); // item IDs queued for salvage
 
   constructor(callbacks: typeof HubScreen.prototype.callbacks) {
     this.callbacks = callbacks;
@@ -245,18 +251,41 @@ export class HubScreen {
           </div>
 
           <div style="${panelTitle()} font-size:11px;">VAULT (${vault.length}/12)</div>
-          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:10px">
-            ${Array.from({ length: 12 }, (_, i) => {
-              const g = vault[i];
-              if (g) {
-                return `<div class="vault-slot" data-item-id="${g.id.toString()}" style="${vaultSlotStyle(RARITY_COLORS[g.rarity])}" title="${itemTooltip(g)}">
-                  ${itemPixelHTML(g)}
-                  <div style="position:absolute;bottom:1px;font-size:6px;color:#665544">${g.slot[0].toUpperCase()}</div>
-                </div>`;
-              }
-              return `<div style="${vaultSlotStyle('#333', true)}">·</div>`;
-            }).join('')}
-          </div>
+          ${(() => {
+            // Prune any staged IDs that no longer exist in vault
+            for (const id of this.salvageStaged) {
+              if (!vault.find(g => g.id.toString() === id)) this.salvageStaged.delete(id);
+            }
+            const keep   = vault.filter(g => !this.salvageStaged.has(g.id.toString()));
+            const staged = vault.filter(g =>  this.salvageStaged.has(g.id.toString()));
+            const totalXp = staged.reduce((s, g) => s + (CLIENT_SALVAGE_XP[Math.min(g.rarity, 5)] ?? 50), 0);
+            const slotGrid = (items: typeof vault, cls: string, borderOverride = '') =>
+              `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:3px">
+                ${items.map(g => `
+                  <div class="${cls}" data-item-id="${g.id.toString()}" style="${vaultSlotStyle(RARITY_COLORS[g.rarity])}${borderOverride}" title="${itemTooltip(g)}">
+                    ${itemPixelHTML(g)}
+                    <div style="position:absolute;bottom:1px;font-size:5px;color:#665544">${g.slot[0].toUpperCase()}</div>
+                  </div>`).join('')}
+                ${items.length === 0 ? `<div style="font-size:7px;color:#443333;padding:6px;grid-column:1/-1;text-align:center">empty</div>` : ''}
+              </div>`;
+            return `
+              <div style="display:flex;gap:6px;margin-bottom:6px">
+                <div style="flex:1;min-width:0">
+                  <div style="font-size:8px;color:#aa9060;text-align:center;margin-bottom:4px;letter-spacing:1px">KEEP · click to queue</div>
+                  ${slotGrid(keep, 'keep-slot')}
+                </div>
+                <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;gap:2px;flex-shrink:0;font-size:9px;color:#554433;padding:0 2px">→<br>←</div>
+                <div style="flex:1;min-width:0">
+                  <div style="font-size:8px;color:#cc4444;text-align:center;margin-bottom:4px;letter-spacing:1px">SALVAGE · click to keep</div>
+                  ${slotGrid(staged, 'staged-slot', 'border-color:#661111;')}
+                </div>
+              </div>
+              ${staged.length > 0 ? `
+                <button id="salvage-all-btn" style="width:100%;padding:7px;margin-bottom:8px;font-size:10px;font-family:Georgia,serif;background:linear-gradient(180deg,#220808,#110404);border:1px solid #882222;border-radius:4px;color:#ff6666;cursor:pointer;letter-spacing:1px">
+                  SALVAGE ALL — ${staged.length} item${staged.length > 1 ? 's' : ''} · +${totalXp} XP
+                </button>
+              ` : ''}`;
+          })()}
 
           ${backpack.length > 0 ? `
             <div style="${panelTitle()} font-size:11px;">BACKPACK (${backpack.length}/6)</div>
@@ -302,6 +331,9 @@ export class HubScreen {
         ⚔️ DEPLOY
       </button>
       <div style="font-size:8px;color:#554433;margin-top:6px">Equipped gear is at risk · Press P in the field to extract via Portal · Getting hit interrupts the cast</div>
+      <button id="hub-test-loot" style="margin-top:8px;padding:5px 14px;font-size:9px;font-family:Georgia,serif;background:transparent;color:#554433;border:1px solid #2a2a3a;border-radius:2px;cursor:pointer;letter-spacing:1px" title="Drop one of every weapon type + full armor in your home world">
+        DEV: Drop Test Kit
+      </button>
 
       <div style="margin-top:20px;display:flex;gap:10px">
         <button id="hub-switch-char" style="padding:6px 18px;font-size:9px;font-family:Georgia,serif;background:transparent;color:#443322;border:1px solid #2a1e14;border-radius:4px;cursor:pointer;letter-spacing:2px"
@@ -328,6 +360,7 @@ export class HubScreen {
     document.getElementById('hub-switch-char')?.addEventListener('click', () => this.callbacks.onSwitchCharacter());
     document.getElementById('hub-logout')?.addEventListener('click', () => this.callbacks.onLogout());
     document.getElementById('token-btn')?.addEventListener('click', () => this.callbacks.onSpendToken());
+    document.getElementById('hub-test-loot')?.addEventListener('click', () => this.callbacks.onSpawnTestLoot());
 
     // Spend XP on attributes
     this.overlay.querySelectorAll<HTMLButtonElement>('.xp-btn').forEach(btn => {
@@ -347,12 +380,27 @@ export class HubScreen {
       el.addEventListener('click', () => this.callbacks.onUnequipItem(BigInt(idStr)));
     });
 
-    // Vault slots: click to equip
-    this.overlay.querySelectorAll<HTMLElement>('.vault-slot').forEach(el => {
+    // Keep slots: click to move to salvage queue
+    this.overlay.querySelectorAll<HTMLElement>('.keep-slot').forEach(el => {
       const idStr = el.dataset.itemId;
       if (!idStr) return;
       el.style.cursor = 'pointer';
-      el.addEventListener('click', () => this.callbacks.onEquipItem(BigInt(idStr)));
+      el.addEventListener('click', () => { this.salvageStaged.add(idStr); this.render(); });
+    });
+
+    // Staged slots: click to move back to keep
+    this.overlay.querySelectorAll<HTMLElement>('.staged-slot').forEach(el => {
+      const idStr = el.dataset.itemId;
+      if (!idStr) return;
+      el.style.cursor = 'pointer';
+      el.addEventListener('click', () => { this.salvageStaged.delete(idStr); this.render(); });
+    });
+
+    // Salvage all button
+    this.overlay.querySelector('#salvage-all-btn')?.addEventListener('click', () => {
+      const ids = [...this.salvageStaged];
+      this.salvageStaged.clear();
+      for (const id of ids) this.callbacks.onSalvageItem(BigInt(id));
     });
 
     // Backpack slots: click to equip

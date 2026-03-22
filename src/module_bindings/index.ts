@@ -44,8 +44,10 @@ import LogoutReducer from "./logout_reducer";
 import MovePlayerReducer from "./move_player_reducer";
 import MoveToVaultReducer from "./move_to_vault_reducer";
 import RespawnPlayerReducer from "./respawn_player_reducer";
+import SalvageItemReducer from "./salvage_item_reducer";
 import SelectCharacterReducer from "./select_character_reducer";
 import SetPlayerNameReducer from "./set_player_name_reducer";
+import SpawnTestLootReducer from "./spawn_test_loot_reducer";
 import SpendSkillXpReducer from "./spend_skill_xp_reducer";
 import SpendTokenReducer from "./spend_token_reducer";
 import SpendXpReducer from "./spend_xp_reducer";
@@ -206,8 +208,10 @@ const reducersSchema = __reducers(
   __reducerSchema("move_player", MovePlayerReducer),
   __reducerSchema("move_to_vault", MoveToVaultReducer),
   __reducerSchema("respawn_player", RespawnPlayerReducer),
+  __reducerSchema("salvage_item", SalvageItemReducer),
   __reducerSchema("select_character", SelectCharacterReducer),
   __reducerSchema("set_player_name", SetPlayerNameReducer),
+  __reducerSchema("spawn_test_loot", SpawnTestLootReducer),
   __reducerSchema("spend_skill_xp", SpendSkillXpReducer),
   __reducerSchema("spend_token", SpendTokenReducer),
   __reducerSchema("spend_xp", SpendXpReducer),
