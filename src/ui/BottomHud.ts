@@ -169,6 +169,7 @@ export class BottomHud {
     myY: number,
     enemies:      Array<{ x: number; y: number; isBoss: boolean }>,
     otherPlayers: Array<{ x: number; y: number }>,
+    portals:      Array<{ x: number; y: number }> = [],
   ) {
     if (!this.mmActive) return;
     const ctx = this.mmCtx;
@@ -243,6 +244,25 @@ export class BottomHud {
         closestPlayerDist  = d;
         closestPlayerAngle = Math.atan2(dy, dx);
       }
+    }
+
+    // Portals — purple diamonds
+    for (const p of portals) {
+      const dx = p.x - myX, dy = p.y - myY;
+      const mmX = cx + dx * MM_SCALE;
+      const mmY = cy + dy * MM_SCALE;
+      const s = 4; // half-size of diamond
+      ctx.fillStyle = '#cc44ff';
+      ctx.shadowColor = '#aa22ee';
+      ctx.shadowBlur  = 4;
+      ctx.beginPath();
+      ctx.moveTo(mmX,     mmY - s);
+      ctx.lineTo(mmX + s, mmY);
+      ctx.lineTo(mmX,     mmY + s);
+      ctx.lineTo(mmX - s, mmY);
+      ctx.closePath();
+      ctx.fill();
+      ctx.shadowBlur = 0;
     }
 
     // Self dot (always on top)

@@ -756,15 +756,22 @@ export class GameScene extends Phaser.Scene {
       otherPlayers.push({ x: p.body.x, y: p.body.y });
     }
 
-    this.bottomHud.updateMinimap(myX, myY, enemies, otherPlayers);
+    const portals: Array<{ x: number; y: number }> = [];
+    for (const [, entry] of this.worldPortals) {
+      portals.push({ x: entry.ring1.x, y: entry.ring1.y });
+    }
+
+    this.bottomHud.updateMinimap(myX, myY, enemies, otherPlayers, portals);
   }
 
   private tickEnemySprites(delta: number) {
     for (const [, entry] of this.enemies) {
       if (!entry.sprite) continue;
+      // Flyers animate at 2× speed (matches creature-lab: every 6 ticks vs 12)
+      const interval = (entry.type === 'shadow' || entry.type === 'virindi') ? 100 : 200;
       entry.spriteFrameTimer += delta;
-      if (entry.spriteFrameTimer >= 300) {
-        entry.spriteFrame = entry.spriteFrame === 0 ? 1 : 0;
+      if (entry.spriteFrameTimer >= interval) {
+        entry.spriteFrame = (entry.spriteFrame + 1) % 4;
         entry.spriteFrameTimer = 0;
       }
       entry.sprite.setFrame(getEnemyFrameIndex(entry.spriteDir, entry.spriteFrame));
